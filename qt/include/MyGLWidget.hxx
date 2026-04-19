@@ -42,6 +42,7 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions
         void mouseMoveEvent (QMouseEvent *event) override;
         void mousePressEvent (QMouseEvent *event) override;
         void keyPressEvent (QKeyEvent *event) override;
+        void resizeGL (int w, int h) override;
 
         GLuint createSimpleTexture (int w, int h);
 
@@ -75,7 +76,7 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions
                                           .arg (m_offset.x(), 8, 'f', 2, QChar (' '))
                                           .arg (m_offset.y(), 8, 'f', 2, QChar (' '));
 
-                emit cameraChanged(status);
+                emit cameraChanged (status);
                 update();
             }
 };

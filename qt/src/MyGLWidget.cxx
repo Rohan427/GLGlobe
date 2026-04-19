@@ -93,6 +93,12 @@ void MyGLWidget::paintGL()
     m_program->release();
 }
 
+void MyGLWidget::resizeGL (int w, int h)
+{
+    glViewport (0, 0, w, h);
+    updateStatus(); // Update the UI with new aspect-aware pos
+}
+
 
 // Input Handlers
 
