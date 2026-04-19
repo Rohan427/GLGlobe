@@ -1,0 +1,56 @@
+cmake_minimum_required(VERSION 3.16)
+project (LegacyGLApp VERSION 1.0 LANGUAGES CXX)
+
+# Force standard C++ for Qt6
+set (CMAKE_CXX_STANDARD 17)
+set (CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Enable Qt's automatic meta-object, UI, and resource compilers
+set (CMAKE_AUTOMOC ON)
+set (CMAKE_AUTOUIC ON)
+set (CMAKE_AUTORCC ON)
+
+# 1. Find the necessary Qt6 components
+# In Qt6, QOpenGLWidget was moved to its own 'OpenGLWidgets' module
+find_package (Qt6 REQUIRED COMPONENTS Widgets OpenGL OpenGLWidgets)
+
+# 2. Find the system OpenGL library (for legacy gl* symbols)
+# RHEL 10 uses GLVND by default; setting this to LEGACY ensures 
+# it links against libGL.so for legacy compatibility.
+set (OpenGL_GL_PREFERENCE LEGACY)
+find_package (OpenGL REQUIRED)
+
+set (SOURCE_ROOT ${CMAKE_SOURCE_DIR}/src)
+set (HEADER_ROOT ${CMAKE_SOURCE_DIR}/include)
+
+set (HEADER_FILES
+    ${HEADER_ROOT}
+)
+
+# Define your source files
+set (SOURCES
+    ${SOURCE_ROOT}/Main.cxx
+    ${SOURCE_ROOT}/MainWindow.cxx
+    ${SOURCE_ROOT}/MyGLWidget.cxx
+#    ${SOURCE_ROOT}/MyGLWidget.cpp
+)
+
+set (HEADERS
+    ${HEADER_ROOT}/MainWindow.hxx
+    ${HEADER_ROOT}/MyGLWidget.hxx
+)
+
+# Create the executable
+add_executable (LegacyGLApp ${SOURCES} ${HEADERS})
+
+# 3. Link everything together
+# You must link BOTH the Qt modules and the raw OpenGL target
+target_link_libraries (LegacyGLApp PRIVATE 
+    Qt6::Widgets 
+    Qt6::OpenGL 
+    Qt6::OpenGLWidgets
+    OpenGL::GL
+)
+
+target_include_directories (LegacyGLApp PRIVATE ${HEADER_FILES})
+
