@@ -46,27 +46,52 @@ void MyGLWidget::initializeGL()
     "}");
 */
 
-    // 3D shader with lighting
+/*
+    // 3D shader with lighting (world model)
     m_program->addShaderFromSourceCode (QOpenGLShader::Vertex,
                                         "#version 430 core\n"
-                                        "    layout (location = 0) in vec3 pos;\n"
-                                        "    layout (location = 1) in vec2 tex;\n"
-                                        "    layout (location = 2) in vec3 normal; // New attribute for light math\n"
-                                        "\n"
-                                        "    out vec2 vTex;\n"
-                                        "    out float vLight; // Pass light intensity to fragment shader\n"
-                                        "    uniform mat4 mvp;\n"
-                                        "    uniform mat3 normalMatrix; // To rotate normals correctly\n"
-                                        "\n"
-                                        "    void main() {"
-                                        "        vTex = vec2 (tex.x, 1.0 - tex.y);\n"
-                                        "        vec3 n = normalize(normalMatrix * normal);\n"
-                                        "        // Simple diffuse light from the front-top-right\n"
-                                        "        vLight = max (dot (n, normalize ( vec3 (0.5, 1.0, 0.5))), 0.2);\n"
-                                        "        gl_Position = mvp * vec4 (pos, 1.0);\n"
-                                        "    }"
+                                        "layout (location = 0) in vec3 pos;\n"
+                                        "layout (location = 1) in vec2 tex;\n"
+                                        "layout (location = 2) in vec3 normal;\n"
+                                        "out vec2 vTex;\n"
+                                        "out float vDiffuse;\n"
+                                        "uniform mat4 mvp;\n"
+                                        "uniform mat4 modelMatrix;\n"
+                                        "void main() {\n"
+                                        "    vTex = tex;\n"
+                                        "    // Transform normal by the Earth's rotation\n"
+                                        "    vec3 worldNormal = normalize (mat3 (modelMatrix) * normal);\n"
+                                        "    // Sun direction is fixed in space (front-right-top)\n"
+                                        "    vec3 sunDir = normalize (vec3 (1.0, 0.4, 0.8));\n"
+                                        "    vDiffuse = max (dot (worldNormal, sunDir), 0.0);\n"
+                                        "    gl_Position = mvp * vec4 (pos, 1.0);\n"
+                                        "}\n"
                                        );
+*/
 
+    // 3D shader with lighting (world model)
+    m_program->addShaderFromSourceCode (QOpenGLShader::Vertex,
+                                        "#version 430 core\n"
+                                        "layout (location = 0) in vec3 pos;\n"
+                                        "layout (location = 1) in vec2 tex;\n"
+                                        "layout (location = 2) in vec3 normal;\n"
+                                        "out vec2 vTex;\n"
+                                        "out float vDiffuse;\n"
+                                        "uniform mat4 mvp;\n"
+                                        "uniform vec3 sunDirection;\n"
+                                        "uniform mat4 modelMatrix;\n"
+"\n"
+                                        "void main() {\n"
+                                        "    vTex = tex; //vTex = vec2 (tex.x, 1.0 - tex.y); // vTex = tex;\n"
+                                        "    // Transform normal to World Space\n"
+                                        "    vec3 worldNormal = normalize (mat3 (modelMatrix) * normal);\n"
+"\n"
+                                        "    // Light is calculated against the fixed Sun direction\n"
+                                        "    vDiffuse = max(dot (worldNormal, normalize (sunDirection)), 0.0);\n"
+"\n"
+                                        "    gl_Position = mvp * vec4 (pos, 1.0);\n"
+                                        "}\n"
+                                      );
 
 /* Original plain vertex shader
     m_program->addShaderFromSourceCode (QOpenGLShader::Vertex,
@@ -83,8 +108,8 @@ void MyGLWidget::initializeGL()
                                        );
 */
 
-    // 3D shader with lighting
-    m_program->addShaderFromSourceCode (QOpenGLShader::Fragment,
+    // 3D shader with lighting (no ambient)
+/*    m_program->addShaderFromSourceCode (QOpenGLShader::Fragment,
                                         "#version 430 core\n"
                                         "    in vec2 vTex;\n"
                                         "    in float vLight;\n"
@@ -95,7 +120,22 @@ void MyGLWidget::initializeGL()
                                         "        fragColor = vec4  (texColor.rgb * vLight, texColor.a);\n"
                                         "    }\n"
                                        );
-
+*/
+    // 3D shader with lighting (with ambient)
+    m_program->addShaderFromSourceCode (QOpenGLShader::Fragment,
+                                        "#version 430 core\n"
+                                        "    in vec2 vTex;\n"
+                                        "    in float vDiffuse;\n"
+                                        "    out vec4 fragColor;\n"
+                                        "    uniform sampler2D sampler;\n"
+                                        "    void main() {\n"
+                                        "        vec4 texColor = texture(sampler, vTex);\n"
+                                        "        float ambient = 0.15; // The dark side brightness\n"
+                                        "        float light = clamp(vDiffuse + ambient, 0.0, 1.0);\n"
+                                        "        fragColor = vec4(texColor.rgb * light, texColor.a);\n"
+                                        "        //fragColor = texture(sampler, vTex); // Ignore vLight/vDiffuse for a moment;\n"
+                                        "    }\n"
+                                       );
 /*
     m_computeProgram = new QOpenGLShaderProgram (this);
     // Standard GLSL 430 is required for compute shaders
@@ -220,115 +260,96 @@ void MyGLWidget::initializeGL()
         qDebug() << "Texture ID is 0";
     }
 
+    initializeGlobePosition();
+
     timer.start();
 }
 
 void MyGLWidget::paintGL() 
 {
-    qDebug() << "MyGLWidget::paintGL()";
-
     // Compute shader code
     // 1. Run Compute Shader
 //    m_computeProgram->bind();
 //    m_computeProgram->setUniformValue ("time", (float)timer.elapsed() / 1000.0f);
     
     // Bind texture to Image Unit 0 (matching 'binding = 0' in shader)
-    qDebug() << "glBindImageTexture";
     glBindImageTexture (0, textureID, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
     
     // Dispatch enough threads to cover a 512x512 texture (512/16 = 32 groups)
 //    glDispatchCompute (512 / 16, 512 / 16, 1);
     
     // Ensure compute finishes before the fragment shader tries to read it
-    qDebug() << "glMemoryBarrier";
     glMemoryBarrier (GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 //    m_computeProgram->release();
 
     // End compute shader code
 
-    qDebug() << "glClear";
-    glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // 3D persepctive code
-    // 1. Projection: 45 degree field of view, aspect aware for 4K
-    aspect = (float)width() / (float)(height() > 0 ? height() : 1);
+
+
+
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // 1. Projection (The 4K Lens)
+    float aspect = (float)width() / (float)height();
     QMatrix4x4 projection;
     projection.perspective (45.0f, aspect, 0.1f, 100.0f);
 
-    // 2. View/Model: Move camera back 5 units, apply drag/rot
-    QMatrix4x4 modelview;
-    modelview.translate (m_offset.x(), m_offset.y(), -10.0f); 
+    // 2. View (The Camera/Mouse controls)
+    QMatrix4x4 view;
+    view.translate (m_offset.x(), m_offset.y(), -10.0f * m_zoom);
+    // These rotations let the mouse "orbit" the globe
+    view.rotate (m_rotation.x(), 1.0f, 0.0f, 0.0f);
+    view.rotate (m_rotation.y(), 0.0f, 1.0f, 0.0f);
 
-    modelview.rotate (m_rotation.x(), 1.0f, 0.0f, 0.0f);
-    modelview.rotate (m_rotation.y(), 0.0f, 1.0f, 0.0f);
-    modelview.scale (m_zoom);
+    QMatrix4x4 model;
 
-    // End 3D code
+    // 1. Axial Tilt: Use a NEGATIVE rotation to tilt the North Pole TOWARD the sun in April
+    model.rotate (m_liveTilt, 1.0f, 0.0f, 0.0f); 
 
-    QMatrix4x4 mvp = projection * modelview;
+    // 2. Real-Time Spin:
+    // We use UTC time to avoid local daylight savings confusion
+    qint64 msecs = QDateTime::currentDateTimeUtc().time().msecsSinceStartOfDay();
+    float dayFraction = (float)msecs / 86400000.0f;
+    
+    // Offset calculation: 
+    // -90 aligns 0-longitude with 'noon' at 12:00 UTC
+    float spinAngle = (dayFraction * 360.0f) + m_liveOffset; 
+    
+    model.rotate (spinAngle, 0.0f, 1.0f, 0.0f); 
+   
 
-    if (!m_program->bind()) {qDebug ("ERROR: shader program not bound\n"); return;}
+    // For real-time testing (1 full rotation per 10 seconds)
+    //float timeScale = 10.0f; 
+    //float liveSpin = (timer.elapsed() / 1000.0f) * (360.0f / timeScale);
+    //model.rotate (liveSpin, 0.0f, 1.0f, 0.0f);
 
-    // Add value for 3D shader
-    m_program->setUniformValue ("mvp", mvp);
+    // 4. Update Uniforms
+    m_program->bind();
+    m_program->setUniformValue("modelMatrix", model);
+    m_program->setUniformValue("sunDirection", QVector3D (0, 0, 1));
+    m_program->setUniformValue ("mvp", projection * view * model);
 
-    // Normal matrix is the inverse transpose of the modelview rotation
-    m_program->setUniformValue ("normalMatrix", modelview.normalMatrix());
-
-    m_vao.bind();  // Must be bound during the draw call
-    m_vbo.bind();  // Must be bound to link attributes
-
-    // 1. Link "pos" (attribute index 0)
-    // data is: [X, Y, U, V] -> 4 floats total
-    int posLocation = m_program->attributeLocation ("pos");
-    m_program->enableAttributeArray (posLocation);
-    m_program->setAttributeBuffer (posLocation, GL_FLOAT, 0, 2, 4 * sizeof(float));
-
-    // 2. Link "tex" (attribute index 1)
-    // Starts after 2 floats (X,Y)
-    int texLocation = m_program->attributeLocation ("tex");
-    m_program->enableAttributeArray (texLocation);
-    m_program->setAttributeBuffer (texLocation, GL_FLOAT, 2 * sizeof(float), 2, 4 * sizeof(float));
-
-    // 3. Set Uniforms
-    QMatrix4x4 matrix;
-    matrix.translate (m_offset.x(), m_offset.y(), 0.0f);
-    matrix.rotate (m_rotation.x(), 1.0f, 0.0f, 0.0f);
-    matrix.rotate (m_rotation.y(), 0.0f, 1.0f, 0.0f);
-    matrix.scale (m_zoom);
-//    m_program->setUniformValue ("mvp", matrix);
-
-    // 4. Draw
-    glBindTexture (GL_TEXTURE_2D, textureID);
-
-    // Buffers for no lighting
-    // Note: change stride to 5 * sizeof(float) to match new Z coord
-    //m_program->setAttributeBuffer (0, GL_FLOAT, 0, 3, 5 * sizeof (float));
-    //m_program->setAttributeBuffer (1, GL_FLOAT, 3 * sizeof (float), 2, 5 * sizeof(float));
-
-    // Stride is 8 floats: (3 pos + 2 tex + 3 normal)
+    // 3. Drawing
+    m_vao.bind();
+    m_vbo.bind();
     int stride = 8 * sizeof (float);
 
-    //Buffers with lighting
+    m_program->enableAttributeArray (0);
     m_program->setAttributeBuffer (0, GL_FLOAT, 0, 3, stride); // pos
+    m_program->enableAttributeArray (1);
     m_program->setAttributeBuffer (1, GL_FLOAT, 3 * sizeof (float), 2, stride); // tex
-    m_program->setAttributeBuffer (2, GL_FLOAT, 5 * sizeof (float), 3, stride); // normal
     m_program->enableAttributeArray (2);
+    m_program->setAttributeBuffer (2, GL_FLOAT, 5 * sizeof (float), 3, stride); // normal
 
-    // Draw call for 2D plane
-    //glDrawArrays (GL_TRIANGLE_FAN, 0, 4);
-
-    // Draw call for 3D cube
-//    glDrawArrays (GL_TRIANGLES, 0, 36);
-
-    // Draw call for sphere
+    glBindTexture (GL_TEXTURE_2D, textureID);
     glDrawArrays (GL_TRIANGLES, 0, m_sphereVertices.size() / 8);
 
-    // 5. Cleanup
-    m_program->disableAttributeArray (posLocation);
-    m_program->disableAttributeArray (texLocation);
     m_vao.release();
     m_program->release();
+
+
+
 
     // FPS Logic
     static int frames = 0;
@@ -348,12 +369,15 @@ void MyGLWidget::paintGL()
                              .arg (frames)
                              .arg (m_currentStatusString);
         
-        emit cameraChanged(fullStatus);
+        emit cameraChanged (fullStatus);
         
         frames = 0;
         fpsTimer.restart();
     }
-}
+
+    updateStatus();
+} // MyGLWidget::paintGL() 
+
 
 void MyGLWidget::resizeGL (int w, int h)
 {
@@ -384,7 +408,6 @@ void MyGLWidget::keyPressEvent (QKeyEvent *event)
 
     updateStatus();
 }
-
 
 // Transform mouse handlers
 
@@ -421,6 +444,7 @@ void MyGLWidget::mousePressEvent (QMouseEvent *event)
 {
     m_lastMousePos = event->pos();
 }
+
 
 
 GLuint MyGLWidget::createSimpleTexture (int w, int h)
@@ -482,15 +506,15 @@ void MyGLWidget::generateSphere (float radius, int sectors, int stacks)
     {
         stackAngle = M_PI / 2 - i * stackStep;      // starting from pi/2 to -pi/2
         xy = radius * cosf (stackAngle);             // r * cos(u)
-        z = radius * sinf (stackAngle);              // r * sin(u)
+        y = radius * sinf (stackAngle);              // r * sin(u)
 
-        for(int j = 0; j <= sectors; ++j)
+        for (int j = 0; j <= sectors; ++j)
         {
             sectorAngle = j * sectorStep;           // starting from 0 to 2pi
 
             // Position (x, y, z)
             x = xy * cosf (sectorAngle);             // r * cos(u) * cos(v)
-            y = xy * sinf (sectorAngle);             // r * cos(u) * sin(v)
+            z = xy * sinf (sectorAngle);             // r * cos(u) * sin(v)
             data.push_back (x);
             data.push_back (y);
             data.push_back (z);
@@ -537,23 +561,54 @@ void MyGLWidget::generateSphere (float radius, int sectors, int stacks)
             {
                 addIdx (k1);
                 addIdx (k2);
-                addIdx (k1+1);
+                addIdx (k1 + 1);
             } // k1---k1+1---k2
 
             if (i != (stacks-1))
             {
-                addIdx (k1+1);
+                addIdx (k1 + 1);
                 addIdx (k2);
-                addIdx (k2+1);
+                addIdx (k2 + 1);
             } // k1+1---k2---k2+1
         }
     }
 }
 
+QVector3D MyGLWidget::calculateSunDirection()
+{
+    // 1. Get Day of Year for Seasonal Tilt (North/South light balance)
+    int dayOfYear = QDate::currentDate().dayOfYear();
+    // Earth is tilted 23.44 degrees. This formula finds the sun's relative latitude.
+    float solarDeclination = m_liveTilt * sinf ((2.0f * M_PI / 365.0f) * (dayOfYear - 81));
+
+    // 2. Calculate the Sun Vector
+    QMatrix4x4 sunTransform;
+    
+    // Season: Tilt the light source Up/Down based on the date
+    sunTransform.rotate (solarDeclination, 1.0f, 0.0f, 0.0f);
+    
+    // Time of Day: The Sun's longitude (0 longitude is noon)
+    float msecs = QTime::currentTime().msecsSinceStartOfDay();
+    float dayFraction = msecs / 86400000.0f;
+    float solarLongitude = (dayFraction * 360.0f) + m_liveOffset;// + 180.0f;
+    
+    sunTransform.rotate (solarLongitude, 0.0f, 1.0f, 0.0f);
+
+    // Return the direction from the Sun to the Earth (fixed in World Space)
+    //return sunTransform.map (QVector3D (0, 0, 1)).normalized();
+    
+    return QVector3D (0.0f, 0.0f, 1.0f);
+}
+
+void MyGLWidget::initializeGlobePosition()
+{
+    m_zoom = 1.0f;
+    m_offset = QVector2D (0.0f, 0.0f);
+}
+
+
 GLuint MyGLWidget::loadMapTexture (const QString& filePath)
 {
-    qDebug() << "Loading image: " << filePath;
-
     QImageReader reader (filePath);
     
     // Bypass the default 128MB limit for your 8k texture
@@ -565,16 +620,11 @@ GLuint MyGLWidget::loadMapTexture (const QString& filePath)
         return 0;
     }
 
-    qDebug() << "Reading image: " << filePath;
-
     // Optional: Downscale during load to stay within ROCm memory stability limits
     if (reader.size().width() > 4096)
     {
         reader.setScaledSize (QSize (4096, 2048));
-        qDebug() << "Scaling image:" << filePath;
     }
-
-    qDebug() << "Reading image: " << filePath;
 
     QImage img = reader.read();
 
@@ -586,31 +636,24 @@ GLuint MyGLWidget::loadMapTexture (const QString& filePath)
 
     // Convert to RGBA8888 for GL_RGBA8 compatibility
     // Use flipped() to move the origin from top-left to bottom-left for OpenGL
+    img = img.convertToFormat (QImage::Format_RGBA8888).flipped (Qt::Horizontal);
 
-    qDebug() << "Converting image: " << filePath;
-    img = img.convertToFormat (QImage::Format_RGBA8888).flipped();
-
-    qDebug() << "Initializing texture: " << filePath;
     GLuint textureID;
     glGenTextures (1, &textureID);
     glBindTexture (GL_TEXTURE_2D, textureID);
 
-    qDebug() << "Setting parameters for globe: " << filePath;
     // Texture parameters for the globe
     glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    qDebug() << "Uploading to GPU: " << filePath;
     // Upload to the RX 7800XT
     glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, 
                  img.width(), img.height(), 0, 
                  GL_RGBA, GL_UNSIGNED_BYTE, img.constBits());
 
-    qDebug() << "Generating MIPMAP: " << filePath;
     glGenerateMipmap (GL_TEXTURE_2D);
 
-    qDebug() << "Uplaod complete: " << filePath;
     return textureID;
 }

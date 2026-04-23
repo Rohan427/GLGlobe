@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QShortcut>
 #include <QKeySequence>
+#include <QDoubleSpinBox>
 #include "MyGLWidget.hxx"
 
 class MainWindow : public QMainWindow
@@ -53,6 +54,32 @@ class MainWindow : public QMainWindow
             sidebar->addWidget (refreshBtn);
             QPushButton* resetBtn = new QPushButton ("Reset View", this);
             sidebar->addWidget (resetBtn);
+
+
+            //********** Controls for adjusting globe alignment **********//
+            QVBoxLayout* controlLayout = new QVBoxLayout();
+
+            // Spin Offset Control
+            controlLayout->addWidget (new QLabel ("UTC Spin Offset:", this));
+            QDoubleSpinBox* offsetSpin = new QDoubleSpinBox(this);
+            offsetSpin->setRange (-360.0, 360.0);
+            offsetSpin->setValue (-90.0); // Your current guess
+            sidebar->addLayout (controlLayout);
+            sidebar->addWidget (offsetSpin);
+
+            // Seasonal Tilt Control
+            controlLayout->addWidget (new QLabel ("Axial Tilt (deg):", this));
+            QDoubleSpinBox* tiltSpin = new QDoubleSpinBox(this);
+            tiltSpin->setRange (-30.0, 30.0);
+            tiltSpin->setValue (-23.5); 
+            sidebar->addWidget (tiltSpin);
+
+            // Connect them to your GL Widget
+            connect (offsetSpin, &QDoubleSpinBox::valueChanged, glViewport, &MyGLWidget::setSpinOffset);
+            connect (tiltSpin, &QDoubleSpinBox::valueChanged, glViewport, &MyGLWidget::setAxialTilt);
+
+            //********** END Controls (Rmove when complete **********//
+
 
             /****** Collapsible sidebar ******/
             // Add it to a toolbar or the very top of the layout

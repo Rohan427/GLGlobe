@@ -11,6 +11,7 @@
 #include <QOpenGLBuffer>
 #include <QElapsedTimer>
 #include <QImageReader>
+#include <QDateTime>
 
 
 #ifndef M_PI
@@ -50,6 +51,10 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
         // Mouse sensitivity
         float sensitivity = 5.0f; // Adjust to feel
 
+        // Initial globe settings
+        float m_liveOffset = -90.0f;
+        float m_liveTilt = 23.5f;
+
     public:
         // This constructor is required to use the widget in a layout
         explicit MyGLWidget (QWidget* parent = nullptr) : QOpenGLWidget (parent) 
@@ -57,6 +62,7 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
 
         void generateSphere (float radius, int sectors, int stacks);
         GLuint loadMapTexture (const QString& filePath);
+        void initializeGlobePosition();
 
     protected:
         void initializeGL() override;
@@ -69,22 +75,43 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
         void keyPressEvent (QKeyEvent *event) override;
         void resizeGL (int w, int h) override;
 
+        // Calculate the real-world sun direction
+        QVector3D calculateSunDirection();
+
         // To test basic pipeline with vertex + fragment shaders
         GLuint createSimpleTexture (int w, int h);
         
         // To test compute shader inpipeline
         GLuint createDynamicTexture (int w, int h);
 
-        // Inside your widget for executing compute shader
+        // Inside the widget for executing compute shader
         void runCompute();
 
     public slots:
         void resetView()
         {
-            m_zoom = .57f; // Ideal for test cube camera distance
-            m_rotation = QVector2D (20.0f, 45.0f); // Slight tilt looks better in 3D
-            m_offset = QVector2D (0.0f, 0.0f);
+            /* m_zoom = 1.0f;
+            m_offset = QVector2D(0.0f, 0.0f);
+            
+            // 90 on X brings the Z-axis (Pole) to the Y-axis (Top).
+            // 0 on Y ensures we aren't rotated "sideways".
+            m_rotation = QVector2D(90.0f, 0.0f);*/
+
+            initializeGlobePosition();
+
             updateStatus(); // Repaints AND updates the UI
+        }
+
+        void setSpinOffset (double val)
+        {
+            m_liveOffset = val;
+            updateStatus();
+        }
+
+        void setAxialTilt (double val)
+        {
+            m_liveTilt = val;
+            updateStatus();
         }
 
     signals:
@@ -97,13 +124,17 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
                 m_currentStatusString = QString (
                                                  "ZOOM: %1\n"
                                                  "ROT:  %2, %3\n"
-                                                 "POS:  %4, %5"
+                                                 "POS:  %4, %5\n"
+                                                 "Tilt: %6\n"
+                                                 "Spin: %7\n"
                                                 )
                                                  .arg (m_zoom, 8, 'f', 2, QChar (' '))// 8 chars total width
                                                  .arg (m_rotation.x(), 8, 'f', 1, QChar (' '))
                                                  .arg (m_rotation.y(), 8, 'f', 1, QChar (' '))
                                                  .arg (m_offset.x(), 8, 'f', 2, QChar (' '))
-                                                 .arg (m_offset.y(), 8, 'f', 2, QChar (' '));
+                                                 .arg (m_offset.y(), 8, 'f', 2, QChar (' '))
+                                                 .arg (m_liveTilt, 6, 'f', 2, QChar (' '))
+                                                 .arg (m_liveOffset, 6, 'f', 2, QChar (' '));
                 update();
             }
 };
