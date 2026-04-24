@@ -40,6 +40,11 @@ set (HEADERS
     ${HEADER_ROOT}/MyGLWidget.hxx
 )
 
+# Define output folders
+set (CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../bin)
+set (CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../lib)
+set (CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../lib)
+
 # Create the executable
 add_executable (LegacyGLApp ${SOURCES} ${HEADERS})
 
@@ -53,4 +58,16 @@ target_link_libraries (LegacyGLApp PRIVATE
 )
 
 target_include_directories (LegacyGLApp PRIVATE ${HEADER_FILES})
+
+add_custom_command (TARGET LegacyGLApp POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${SOURCE_ROOT}/globe/shaders"
+            "$<TARGET_FILE_DIR:LegacyGLApp>/shaders"
+)
+add_custom_command(TARGET LegacyGLApp POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "run"
+            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/run"
+)
+
 

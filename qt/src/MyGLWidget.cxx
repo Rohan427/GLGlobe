@@ -46,53 +46,6 @@ void MyGLWidget::initializeGL()
     "}");
 */
 
-/*
-    // 3D shader with lighting (world model)
-    m_program->addShaderFromSourceCode (QOpenGLShader::Vertex,
-                                        "#version 430 core\n"
-                                        "layout (location = 0) in vec3 pos;\n"
-                                        "layout (location = 1) in vec2 tex;\n"
-                                        "layout (location = 2) in vec3 normal;\n"
-                                        "out vec2 vTex;\n"
-                                        "out float vDiffuse;\n"
-                                        "uniform mat4 mvp;\n"
-                                        "uniform mat4 modelMatrix;\n"
-                                        "void main() {\n"
-                                        "    vTex = tex;\n"
-                                        "    // Transform normal by the Earth's rotation\n"
-                                        "    vec3 worldNormal = normalize (mat3 (modelMatrix) * normal);\n"
-                                        "    // Sun direction is fixed in space (front-right-top)\n"
-                                        "    vec3 sunDir = normalize (vec3 (1.0, 0.4, 0.8));\n"
-                                        "    vDiffuse = max (dot (worldNormal, sunDir), 0.0);\n"
-                                        "    gl_Position = mvp * vec4 (pos, 1.0);\n"
-                                        "}\n"
-                                       );
-*/
-
-    // 3D shader with lighting (world model)
-    m_program->addShaderFromSourceCode (QOpenGLShader::Vertex,
-                                        "#version 430 core\n"
-                                        "layout (location = 0) in vec3 pos;\n"
-                                        "layout (location = 1) in vec2 tex;\n"
-                                        "layout (location = 2) in vec3 normal;\n"
-                                        "out vec2 vTex;\n"
-                                        "out float vDiffuse;\n"
-                                        "uniform mat4 mvp;\n"
-                                        "uniform vec3 sunDirection;\n"
-                                        "uniform mat4 modelMatrix;\n"
-"\n"
-                                        "void main() {\n"
-                                        "    vTex = tex; //vTex = vec2 (tex.x, 1.0 - tex.y); // vTex = tex;\n"
-                                        "    // Transform normal to World Space\n"
-                                        "    vec3 worldNormal = normalize (mat3 (modelMatrix) * normal);\n"
-"\n"
-                                        "    // Light is calculated against the fixed Sun direction\n"
-                                        "    vDiffuse = max(dot (worldNormal, normalize (sunDirection)), 0.0);\n"
-"\n"
-                                        "    gl_Position = mvp * vec4 (pos, 1.0);\n"
-                                        "}\n"
-                                      );
-
 /* Original plain vertex shader
     m_program->addShaderFromSourceCode (QOpenGLShader::Vertex,
                                        "attribute vec2 pos; attribute vec2 tex; \
@@ -107,126 +60,18 @@ void MyGLWidget::initializeGL()
                                          void main() { gl_FragColor = texture2D(sampler, vTex); }"
                                        );
 */
+    registerShader ("Standard", "shaders/Earth.vert", "shaders/Earth.frag");
+//    registerShader ("NightLights", "shaders/standard.vert", "shaders/night_lights.frag");
+//    registerShader ("Atmosphere", "shaders/glow.vert", "shaders/glow.frag");
 
-    // 3D shader with lighting (no ambient)
-/*    m_program->addShaderFromSourceCode (QOpenGLShader::Fragment,
-                                        "#version 430 core\n"
-                                        "    in vec2 vTex;\n"
-                                        "    in float vLight;\n"
-                                        "    out vec4 fragColor; // Define our own output variable\n"
-                                        "    uniform sampler2D sampler;\n"
-                                        "    void main() {\n"
-                                        "        vec4 texColor = texture(sampler, vTex);\n"
-                                        "        fragColor = vec4  (texColor.rgb * vLight, texColor.a);\n"
-                                        "    }\n"
-                                       );
-*/
-    // 3D shader with lighting (with ambient)
-    m_program->addShaderFromSourceCode (QOpenGLShader::Fragment,
-                                        "#version 430 core\n"
-                                        "    in vec2 vTex;\n"
-                                        "    in float vDiffuse;\n"
-                                        "    out vec4 fragColor;\n"
-                                        "    uniform sampler2D sampler;\n"
-                                        "    void main() {\n"
-                                        "        vec4 texColor = texture(sampler, vTex);\n"
-                                        "        float ambient = 0.15; // The dark side brightness\n"
-                                        "        float light = clamp(vDiffuse + ambient, 0.0, 1.0);\n"
-                                        "        fragColor = vec4(texColor.rgb * light, texColor.a);\n"
-                                        "        //fragColor = texture(sampler, vTex); // Ignore vLight/vDiffuse for a moment;\n"
-                                        "    }\n"
-                                       );
-/*
-    m_computeProgram = new QOpenGLShaderProgram (this);
-    // Standard GLSL 430 is required for compute shaders
-    m_computeProgram->addShaderFromSourceCode (QOpenGLShader::Compute,
-                                               "#version 430 core\n"
-                                               "layout (local_size_x = 16, local_size_y = 16) in; // 16x16 thread blocks\n"
-                                               "layout (rgba8, binding = 0) uniform writeonly image2D outTexture;\n"
-                                               "uniform float time;\n"
-                                               "void main() {\n"
-                                               "    ivec2 texelCoord = ivec2 (gl_GlobalInvocationID.xy);\n"
-                                               "    // Dynamic checkerboard based on coordinates and time\n"
-                                               "    float val = mod(floor (texelCoord.x / 32.0 + time) + floor (texelCoord.y / 32.0), 2.0);\n"
-                                               "    vec4 color = vec4 (val, 0.0, 1.0 - val, 1.0);\n"
-                                               "    imageStore (outTexture, texelCoord, color);\n"
-                                               "}"
-                                              );
-*/
-    m_program->link();
+    // Set the default
+    m_program = m_shaders["Standard"];
 
     if (!m_program->link())
     {
         qDebug() << "Shader Linker Error:" << m_program->log();
     }
 
-    // 2a. Square Geometry (X, Y, U, V)
-    //float data[] = { -0.5,-0.5, 0,0,  0.5,-0.5, 1,0,  0.5,0.5, 1,1, -0.5,0.5, 0,1 };
-/*
-    // 2b. 3D X, Y, Z, U, V
-    float data[] =
-    { 
-        -1.0, -1.0, 0.0,  0.0, 0.0,
-         1.0, -1.0, 0.0,  1.0, 0.0,
-         1.0,  1.0, 0.0,  1.0, 1.0,
-        -1.0,  1.0, 0.0,  0.0, 1.0 
-    };
-*/
-    // 2c. Cude data
-    // X, Y, Z, U, V
-/*
-    float cubeData[] =
-    {
-        // Front face
-        -1.0f, -1.0f,  1.0f, 0.0f, 0.0f,  1.0f, -1.0f,  1.0f, 1.0f, 0.0f,  1.0f,  1.0f,  1.0f, 1.0f, 1.0f,
-        -1.0f, -1.0f,  1.0f, 0.0f, 0.0f,  1.0f,  1.0f,  1.0f, 1.0f, 1.0f, -1.0f,  1.0f,  1.0f, 0.0f, 1.0f,
-        // Back face
-        -1.0f, -1.0f, -1.0f, 1.0f, 0.0f, -1.0f,  1.0f, -1.0f, 1.0f, 1.0f,  1.0f,  1.0f, -1.0f, 0.0f, 1.0f,
-        -1.0f, -1.0f, -1.0f, 1.0f, 0.0f,  1.0f,  1.0f, -1.0f, 0.0f, 1.0f,  1.0f, -1.0f, -1.0f, 0.0f, 0.0f,
-        // Top face
-        -1.0f,  1.0f, -1.0f, 0.0f, 1.0f, -1.0f,  1.0f,  1.0f, 0.0f, 0.0f,  1.0f,  1.0f,  1.0f, 1.0f, 0.0f,
-        -1.0f,  1.0f, -1.0f, 0.0f, 1.0f,  1.0f,  1.0f,  1.0f, 1.0f, 0.0f,  1.0f,  1.0f, -1.0f, 1.0f, 1.0f,
-        // Bottom face
-        -1.0f, -1.0f, -1.0f, 1.0f, 1.0f,  1.0f, -1.0f, -1.0f, 0.0f, 1.0f,  1.0f, -1.0f,  1.0f, 0.0f, 0.0f,
-        -1.0f, -1.0f, -1.0f, 1.0f, 1.0f,  1.0f, -1.0f,  1.0f, 0.0f, 0.0f, -1.0f, -1.0f,  1.0f, 1.0f, 0.0f,
-        // Right face
-        1.0f, -1.0f, -1.0f, 1.0f, 0.0f,  1.0f,  1.0f, -1.0f, 1.0f, 1.0f,  1.0f,  1.0f,  1.0f, 0.0f, 1.0f,
-        1.0f, -1.0f, -1.0f, 1.0f, 0.0f,  1.0f,  1.0f,  1.0f, 0.0f, 1.0f,  1.0f, -1.0f,  1.0f, 0.0f, 0.0f,
-        // Left face
-        -1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f, -1.0f,  1.0f, 1.0f, 0.0f, -1.0f,  1.0f,  1.0f, 1.0f, 1.0f,
-        -1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f,  1.0f,  1.0f, 1.0f, 1.0f, -1.0f,  1.0f, -1.0f, 0.0f, 1.0f
-    };
-*/
-
-    // X, Y, Z, U, V, NX, NY, NZ (8 floats per vertex)
-/*
-    float cubeNormalData[] =
-    {
-        // Front face
-        -1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 0,0,1,    1.0f, -1.0f,  1.0f, 1.0f, 0.0f, 0,0,1,   1.0f,  1.0f,  1.0f, 1.0f, 1.0f, 0,0,1,
-        -1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 0,0,1,    1.0f,  1.0f,  1.0f, 1.0f, 1.0f, 0,0,1,   -1.0f,  1.0f,  1.0f, 0.0f, 1.0f, 0,0,1,
-
-        // Back face
-        -1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 0,0,-1,   -1.0f,  1.0f, -1.0f, 1.0f, 1.0f, 0,0,-1,    1.0f,  1.0f, -1.0f, 0.0f, 1.0f, 0,0,-1,
-        -1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 0,0,-1,    1.0f,  1.0f, -1.0f, 0.0f, 1.0f, 0,0,-1,    1.0f, -1.0f, -1.0f, 0.0f, 0.0f, 0,0,-1,
-
-        // Top face
-        -1.0f,  1.0f, -1.0f, 0.0f, 1.0f, 0,1,0,   -1.0f,  1.0f,  1.0f, 0.0f, 0.0f, 0,1,0,    1.0f,  1.0f,  1.0f, 1.0f, 0.0f, 0,1,0,
-        -1.0f,  1.0f, -1.0f, 0.0f, 1.0f, 0,1,0,    1.0f,  1.0f,  1.0f, 1.0f, 0.0f, 0,1,0,    1.0f,  1.0f, -1.0f, 1.0f, 1.0f, 0,1,0,
-
-        // Bottom face
-        -1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 0,-1,0,    1.0f, -1.0f, -1.0f, 0.0f, 1.0f, 0,-1,0,    1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 0,-1,0,
-        -1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 0,-1,0,    1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 0,-1,0,   -1.0f, -1.0f,  1.0f, 1.0f, 0.0f, 0,-1,0,
-
-        // Right face
-        1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 1,0,0,     1.0f,  1.0f, -1.0f, 1.0f, 1.0f, 1,0,0,    1.0f,  1.0f,  1.0f, 0.0f, 1.0f, 1,0,0,
-        1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 1,0,0,     1.0f,  1.0f,  1.0f, 0.0f, 1.0f, 1,0,0,    1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 1,0,0,
-
-        // Left face
-        -1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1,0,0,   -1.0f, -1.0f,  1.0f, 1.0f, 0.0f, -1,0,0,   -1.0f,  1.0f,  1.0f, 1.0f, 1.0f, -1,0,0,
-        -1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1,0,0,   -1.0f,  1.0f,  1.0f, 1.0f, 1.0f, -1,0,0,   -1.0f,  1.0f, -1.0f, 0.0f, 1.0f, -1,0,0
-    };
-*/    
     generateSphere (1.5f, 64, 64); // Radius 1.5, 64 sectors/stacks
 
     m_vbo.create();
@@ -326,8 +171,8 @@ void MyGLWidget::paintGL()
 
     // 4. Update Uniforms
     m_program->bind();
-    m_program->setUniformValue("modelMatrix", model);
-    m_program->setUniformValue("sunDirection", QVector3D (0, 0, 1));
+    m_program->setUniformValue ("modelMatrix", model);
+    m_program->setUniformValue ("sunDirection", QVector3D (0, 0, 1));
     m_program->setUniformValue ("mvp", projection * view * model);
 
     // 3. Drawing
@@ -385,19 +230,15 @@ void MyGLWidget::resizeGL (int w, int h)
     updateStatus(); // Update the UI with new aspect-aware pos
 }
 
-
-// Input Handlers
-
-// Generic mouse handlers
-/*
-void MyGLWidget::mousePressEvent (QMouseEvent *event) override
+// Inside your widget for executing compute shader
+void MyGLWidget::runCompute()
 {
-    // Example: print click coordinates
-    qDebug() << "Mouse clicked at:" << event->position();
-    update(); // Triggers a repaint
+//            glUseProgram (computeShaderProgramID);
+//            glDispatchCompute (groups_x, groups_y, groups_z);
+//            glMemoryBarrier (GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 }
 
- End generic mouse handlers */
+// Input Handlers
 
 void MyGLWidget::keyPressEvent (QKeyEvent *event)
 {
@@ -445,8 +286,6 @@ void MyGLWidget::mousePressEvent (QMouseEvent *event)
     m_lastMousePos = event->pos();
 }
 
-
-
 GLuint MyGLWidget::createSimpleTexture (int w, int h)
 {
     GLuint id;
@@ -483,12 +322,93 @@ GLuint MyGLWidget::createDynamicTexture (int w, int h)
     return id;
 }
 
-// Inside your widget for executing compute shader
-void MyGLWidget::runCompute()
+float* MyGLWidget::createPlane()
 {
-//            glUseProgram (computeShaderProgramID);
-//            glDispatchCompute (groups_x, groups_y, groups_z);
-//            glMemoryBarrier (GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    static float data[] = {
+                    -0.5, -0.5,  0, 0, 
+                    0.5,  -0.5,  1, 0, 
+                    0.5,   0.5,  1, 1,
+                    -0.5,  0.5,  0, 1
+                   };
+
+    return data;
+}
+
+float* MyGLWidget::createLargePlane()
+{
+    static float data[] =
+    { 
+        -1.0, -1.0, 0.0,  0.0, 0.0,
+         1.0, -1.0, 0.0,  1.0, 0.0,
+         1.0,  1.0, 0.0,  1.0, 1.0,
+        -1.0,  1.0, 0.0,  0.0, 1.0 
+    };
+
+    return data;
+}
+
+float* MyGLWidget::createNormalCube()
+{
+    static float cubeNormalData[] =
+    {
+        // Front face
+        -1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 0,0,1,    1.0f, -1.0f,  1.0f, 1.0f, 0.0f, 0,0,1,   1.0f,  1.0f,  1.0f, 1.0f, 1.0f, 0,0,1,
+        -1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 0,0,1,    1.0f,  1.0f,  1.0f, 1.0f, 1.0f, 0,0,1,   -1.0f,  1.0f,  1.0f, 0.0f, 1.0f, 0,0,1,
+
+        // Back face
+        -1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 0,0,-1,   -1.0f,  1.0f, -1.0f, 1.0f, 1.0f, 0,0,-1,    1.0f,  1.0f, -1.0f, 0.0f, 1.0f, 0,0,-1,
+        -1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 0,0,-1,    1.0f,  1.0f, -1.0f, 0.0f, 1.0f, 0,0,-1,    1.0f, -1.0f, -1.0f, 0.0f, 0.0f, 0,0,-1,
+
+        // Top face
+        -1.0f,  1.0f, -1.0f, 0.0f, 1.0f, 0,1,0,   -1.0f,  1.0f,  1.0f, 0.0f, 0.0f, 0,1,0,    1.0f,  1.0f,  1.0f, 1.0f, 0.0f, 0,1,0,
+        -1.0f,  1.0f, -1.0f, 0.0f, 1.0f, 0,1,0,    1.0f,  1.0f,  1.0f, 1.0f, 0.0f, 0,1,0,    1.0f,  1.0f, -1.0f, 1.0f, 1.0f, 0,1,0,
+
+        // Bottom face
+        -1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 0,-1,0,    1.0f, -1.0f, -1.0f, 0.0f, 1.0f, 0,-1,0,    1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 0,-1,0,
+        -1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 0,-1,0,    1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 0,-1,0,   -1.0f, -1.0f,  1.0f, 1.0f, 0.0f, 0,-1,0,
+
+        // Right face
+        1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 1,0,0,     1.0f,  1.0f, -1.0f, 1.0f, 1.0f, 1,0,0,    1.0f,  1.0f,  1.0f, 0.0f, 1.0f, 1,0,0,
+        1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 1,0,0,     1.0f,  1.0f,  1.0f, 0.0f, 1.0f, 1,0,0,    1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 1,0,0,
+
+        // Left face
+        -1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1,0,0,   -1.0f, -1.0f,  1.0f, 1.0f, 0.0f, -1,0,0,   -1.0f,  1.0f,  1.0f, 1.0f, 1.0f, -1,0,0,
+        -1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1,0,0,   -1.0f,  1.0f,  1.0f, 1.0f, 1.0f, -1,0,0,   -1.0f,  1.0f, -1.0f, 0.0f, 1.0f, -1,0,0
+    };
+
+    return cubeNormalData;
+}
+
+float* MyGLWidget::createCube()
+{
+    static float cubeData[] =
+    {
+        // Front face
+        -1.0f, -1.0f,  1.0f, 0.0f, 0.0f,  1.0f, -1.0f,  1.0f, 1.0f, 0.0f,  1.0f,  1.0f,  1.0f, 1.0f, 1.0f,
+        -1.0f, -1.0f,  1.0f, 0.0f, 0.0f,  1.0f,  1.0f,  1.0f, 1.0f, 1.0f, -1.0f,  1.0f,  1.0f, 0.0f, 1.0f,
+
+        // Back face
+        -1.0f, -1.0f, -1.0f, 1.0f, 0.0f, -1.0f,  1.0f, -1.0f, 1.0f, 1.0f,  1.0f,  1.0f, -1.0f, 0.0f, 1.0f,
+        -1.0f, -1.0f, -1.0f, 1.0f, 0.0f,  1.0f,  1.0f, -1.0f, 0.0f, 1.0f,  1.0f, -1.0f, -1.0f, 0.0f, 0.0f,
+
+        // Top face
+        -1.0f,  1.0f, -1.0f, 0.0f, 1.0f, -1.0f,  1.0f,  1.0f, 0.0f, 0.0f,  1.0f,  1.0f,  1.0f, 1.0f, 0.0f,
+        -1.0f,  1.0f, -1.0f, 0.0f, 1.0f,  1.0f,  1.0f,  1.0f, 1.0f, 0.0f,  1.0f,  1.0f, -1.0f, 1.0f, 1.0f,
+
+        // Bottom face
+        -1.0f, -1.0f, -1.0f, 1.0f, 1.0f,  1.0f, -1.0f, -1.0f, 0.0f, 1.0f,  1.0f, -1.0f,  1.0f, 0.0f, 0.0f,
+        -1.0f, -1.0f, -1.0f, 1.0f, 1.0f,  1.0f, -1.0f,  1.0f, 0.0f, 0.0f, -1.0f, -1.0f,  1.0f, 1.0f, 0.0f,
+
+        // Right face
+        1.0f, -1.0f, -1.0f, 1.0f, 0.0f,  1.0f,  1.0f, -1.0f, 1.0f, 1.0f,  1.0f,  1.0f,  1.0f, 0.0f, 1.0f,
+        1.0f, -1.0f, -1.0f, 1.0f, 0.0f,  1.0f,  1.0f,  1.0f, 0.0f, 1.0f,  1.0f, -1.0f,  1.0f, 0.0f, 0.0f,
+
+        // Left face
+        -1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f, -1.0f,  1.0f, 1.0f, 0.0f, -1.0f,  1.0f,  1.0f, 1.0f, 1.0f,
+        -1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f,  1.0f,  1.0f, 1.0f, 1.0f, -1.0f,  1.0f, -1.0f, 0.0f, 1.0f
+    };
+
+    return cubeData;
 }
 
 void MyGLWidget::generateSphere (float radius, int sectors, int stacks)
@@ -621,9 +541,9 @@ GLuint MyGLWidget::loadMapTexture (const QString& filePath)
     }
 
     // Optional: Downscale during load to stay within ROCm memory stability limits
-    if (reader.size().width() > 4096)
+    //if (reader.size().width() > 4096)
     {
-        reader.setScaledSize (QSize (4096, 2048));
+        reader.setScaledSize (QSize (map.large[0], map.large[1]));
     }
 
     QImage img = reader.read();
@@ -656,4 +576,55 @@ GLuint MyGLWidget::loadMapTexture (const QString& filePath)
     glGenerateMipmap (GL_TEXTURE_2D);
 
     return textureID;
+}
+
+bool MyGLWidget::initShader (QOpenGLShaderProgram* program, const QString& vPath, const QString& fPath)
+{
+    program->removeAllShaders();
+    
+    if (!program->addShaderFromSourceFile (QOpenGLShader::Vertex, vPath))
+        return false;
+    
+    if (!program->addShaderFromSourceFile (QOpenGLShader::Fragment, fPath))
+        return false;
+    
+    return program->link();
+}
+
+bool MyGLWidget::setActiveShader (const QString& name)
+{
+    if (m_shaders.contains (name))
+    {
+        m_program = m_shaders[name];
+        update(); // Trigger a repaint with the new pipeline
+    }
+    else
+    {
+        qDebug() << "Shader does not exist: " << name;
+        return false;
+    }
+    
+    return true;
+}
+
+bool MyGLWidget::registerShader (const QString& name, const QString& vFile, const QString& fFile)
+{
+    bool result = true;
+
+    QOpenGLShaderProgram* prog = new QOpenGLShaderProgram (this);
+
+    if (prog->addShaderFromSourceFile (QOpenGLShader::Vertex, vFile) &&
+            prog->addShaderFromSourceFile (QOpenGLShader::Fragment, fFile) &&
+            prog->link())
+    {
+        m_shaders.insert (name, prog);
+        qDebug() << "Successfully registered shader:" << name;
+    }
+    else
+    {
+        qDebug() << "Failed to link shader" << name << ":" << prog->log();
+        result = false;
+    }
+
+    return false;
 }
