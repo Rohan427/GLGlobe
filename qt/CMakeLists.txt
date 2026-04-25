@@ -64,10 +64,15 @@ add_custom_command (TARGET LegacyGLApp POST_BUILD
             "${SOURCE_ROOT}/globe/shaders"
             "$<TARGET_FILE_DIR:LegacyGLApp>/shaders"
 )
+
 add_custom_command(TARGET LegacyGLApp POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "run"
             "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/run"
 )
 
-
+add_custom_command(TARGET LegacyGLApp POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${SOURCE_ROOT}/../../textures"
+            "$<TARGET_FILE_DIR:LegacyGLApp>/textures"
+)

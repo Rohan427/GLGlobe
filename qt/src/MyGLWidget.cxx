@@ -60,12 +60,12 @@ void MyGLWidget::initializeGL()
                                          void main() { gl_FragColor = texture2D(sampler, vTex); }"
                                        );
 */
-    registerShader ("Standard", "shaders/Earth.vert", "shaders/Earth.frag");
-//    registerShader ("NightLights", "shaders/standard.vert", "shaders/night_lights.frag");
+//    registerShader ("Standard", "shaders/Earth.vert", "shaders/Earth.frag");
+    registerShader ("NightLights", "shaders/Earth.vert", "shaders/Earth-night.frag");
 //    registerShader ("Atmosphere", "shaders/glow.vert", "shaders/glow.frag");
 
     // Set the default
-    m_program = m_shaders["Standard"];
+    m_program = m_shaders["NightLights"];
 
     if (!m_program->link())
     {
@@ -98,12 +98,20 @@ void MyGLWidget::initializeGL()
 //    textureID = createDynamicTexture (512, 512);
 
     qDebug() << "Load texture";
-    textureID = loadMapTexture ("/data/dev/src/GLGlobe/textures/natural_earth.png");
-
-    if (textureID == 0)
+    //textureID = loadTexture (mapSizes.huge, "textures/1_earth_16k.jpg");
+    
+    if (!loadTextureFiles (mapSizes.huge))
     {
-        qDebug() << "Texture ID is 0";
+        qCritical() << "FATAL ERROR: Failed to initialize textures";
+        QCoreApplication::exit (1); // Exit app
+        return;
     }
+
+    dayTextureID = textureMap["earth16k"];
+    nightTextureID = textureMap["earthnight16k"];
+    //textureID = textureMap["earth16k"];
+
+    std::cout << "Texture ID is " << textureID << std::endl;
 
     initializeGlobePosition();
 
@@ -118,7 +126,7 @@ void MyGLWidget::paintGL()
 //    m_computeProgram->setUniformValue ("time", (float)timer.elapsed() / 1000.0f);
     
     // Bind texture to Image Unit 0 (matching 'binding = 0' in shader)
-    glBindImageTexture (0, textureID, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
+////    glBindImageTexture (0, textureID, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
     
     // Dispatch enough threads to cover a 512x512 texture (512/16 = 32 groups)
 //    glDispatchCompute (512 / 16, 512 / 16, 1);
@@ -130,10 +138,7 @@ void MyGLWidget::paintGL()
     // End compute shader code
 
 
-
-
-
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // 1. Projection (The 4K Lens)
     float aspect = (float)width() / (float)height();
@@ -175,6 +180,16 @@ void MyGLWidget::paintGL()
     m_program->setUniformValue ("sunDirection", QVector3D (0, 0, 1));
     m_program->setUniformValue ("mvp", projection * view * model);
 
+    // Bind Day Texture to Unit 0
+    glActiveTexture (GL_TEXTURE0);
+    glBindTexture (GL_TEXTURE_2D, dayTextureID);
+    m_program->setUniformValue ("daySampler", 0);
+
+    // Bind Night Texture to Unit 1
+    glActiveTexture (GL_TEXTURE1);
+    glBindTexture (GL_TEXTURE_2D, nightTextureID);
+    m_program->setUniformValue ("nightSampler", 1);
+
     // 3. Drawing
     m_vao.bind();
     m_vbo.bind();
@@ -187,7 +202,6 @@ void MyGLWidget::paintGL()
     m_program->enableAttributeArray (2);
     m_program->setAttributeBuffer (2, GL_FLOAT, 5 * sizeof (float), 3, stride); // normal
 
-    glBindTexture (GL_TEXTURE_2D, textureID);
     glDrawArrays (GL_TRIANGLES, 0, m_sphereVertices.size() / 8);
 
     m_vao.release();
@@ -527,7 +541,7 @@ void MyGLWidget::initializeGlobePosition()
 }
 
 
-GLuint MyGLWidget::loadMapTexture (const QString& filePath)
+GLuint MyGLWidget::loadTexture (std::array<int, 2>& mapSize, const QString& filePath)
 {
     QImageReader reader (filePath);
     
@@ -541,16 +555,17 @@ GLuint MyGLWidget::loadMapTexture (const QString& filePath)
     }
 
     // Optional: Downscale during load to stay within ROCm memory stability limits
-    //if (reader.size().width() > 4096)
+    //if (reader.size().width() > 8192)
     {
-        reader.setScaledSize (QSize (map.large[0], map.large[1]));
+        reader.setScaledSize (QSize (mapSize[0], mapSize[1]));
     }
 
     QImage img = reader.read();
 
     if (img.isNull())
     {
-        qDebug() << "Load failed: " << reader.errorString();
+        std::cout << "Load failed: " << reader.errorString().toStdString().c_str() << std::endl;;
+        std::cout << "Load failed: " << reader.errorString().toStdString().c_str() << std::endl;;
         return 0;
     }
 
@@ -577,6 +592,27 @@ GLuint MyGLWidget::loadMapTexture (const QString& filePath)
 
     return textureID;
 }
+
+bool MyGLWidget::loadTextureFiles (std::array<int, 2>& mapSize)
+{
+    for (const auto& pair : TextureFiles)
+    {
+        GLuint textureID = loadTexture (mapSize, pair.second);
+        
+        if (textureID > 0)
+        {
+            textureMap.insert ({pair.first, textureID});
+        }
+        else
+        {
+            std::cout << "Fatal error: Texure ID is 0" << std::endl; 
+            return false;
+        }
+    }
+
+    return true;
+}
+
 
 bool MyGLWidget::initShader (QOpenGLShaderProgram* program, const QString& vPath, const QString& fPath)
 {

@@ -1,5 +1,10 @@
 #pragma once
 
+#include <iostream>
+#include <cstdlib>
+#include <array>
+#include <string>
+#include <map>
 #include <QMouseEvent> // Fixes the "incomplete type" error for mouse
 #include <QKeyEvent>   // Fixes it for keyboard
 #include <QDebug>      // Required for qDebug()
@@ -21,11 +26,30 @@
 // Constant update while debugging
 #include <QTimer>
 
+enum TextureIDs
+{
+    NOTEXTURE,
+    PLAIN_EARTH,        // NE II png
+    EARTH_CL8K_DAY,     // NE III, clouds + ice + shadows 8K
+    EARTH_CL16K_DAY,    // NE III, clouds + ice + shadows 16K
+    EARTH_NC8K_DAY,     // NE III, ice + shadows 8K
+    EARTH_NC16K_DAY,    // NE III, ice + shadows 16K
+    EARTH8K_DAY,        // NE III, 8k
+    EARTH16K_DAY,       // NE III, 16K
+    EARTH8K_NIGHT,      // NE III, Night + ice 8K
+    EARTH16K_NIGHT,     // NE III, Night + ice 16K
+    EARTH8K_BUMP,       // NE III, bump map 8K
+    EARTH16k_BUMP,       //NE III, bump map 16K
+    TEXTURE_END
+};
+
 class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core 
 {
     private:
         Q_OBJECT
         GLuint textureID = 0;
+        GLuint dayTextureID = 0;
+        GLuint nightTextureID = 0;
         QOpenGLVertexArrayObject m_vao;
         QOpenGLShaderProgram* m_program;
         QOpenGLBuffer m_vbo;
@@ -57,12 +81,30 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
 
         struct texSizes
         {
-            int large[2] = {8192, 4096};
-            int medium[2] = {6144, 3072};
-            int small[2] = {4096, 2048};
+            std::array<int, 2> huge = {16200, 8100};
+            std::array<int, 2> large = {8192, 4096};
+            std::array<int, 2> medium = {6144, 3072};
+            std::array<int, 2> small = {4096, 2048};
         };
 
-        texSizes map;
+        std::map<std::string, QString> TextureFiles =
+        {
+            {"simple", "textures/natural_earth.png"},                   // PLAIN_EARTH, 8K can be scaled to 6K or 4K
+            {"earth8k", "textures/1_earth_8k.jpg"},                     // EARTH_CL8K_DAY
+            {"earth16k", "textures/1_earth_16k.jpg"},                   // EARTH_CL16K_DAY
+            {"earthnc8k", "textures/2_no_clouds_8k.jpg"},               // EARTH_NC8K_DAY
+            {"earthnc16k", "textures/2_no_clouds_16k.jpg"},             // EARTH_NC16K_DAY
+            {"earthncice8k", "textures/4_no_ice_clouds_mts_8k.jpg"},    // EARTH8K_DAY
+            {"earthncice16k", "textures/4_no_ice_clouds_mts_16k.jpg"},  // EARTH16K_DAY
+            {"earthnight8k", "textures/5_night_8k.jpg"},                // EARTH8K_NIGHT
+            {"earthnight16k", "textures/5_night_16k.jpg"},              // EARTH16K_NIGHT
+            {"earthbump8k", "textures/elev_bump_8k.jpg"},               // EARTH8K_BUMP
+            {"earthbump16k", "textures/elev_bump_16k.jpg"}              // EARTH16k_BUMP
+        };
+
+        texSizes mapSizes;
+
+        std::map<std::string, GLuint> textureMap;
 
         // Store multiple programs by name
         QMap<QString, QOpenGLShaderProgram*> m_shaders;
@@ -98,13 +140,15 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
         // To test basic pipeline with vertex + fragment shaders
         GLuint createSimpleTexture (int w, int h);
 
-        GLuint loadMapTexture (const QString& filePath);
+        GLuint loadTexture (std::array<int, 2>& mapSize, const QString& filePath);
+        bool loadTextureFiles (std::array<int, 2>& mapSize);
+
         void initializeGlobePosition();
 
         // Square Geometry (X, Y, U, V)
         float* createPlane();
 
-        // Palne X, Y, U, V
+        // Plane X, Y, U, V
         float* createLargePlane();
 
         // Cube with normals X, Y, Z, U, V, NX, NY, NZ (8 floats per vertex)
@@ -118,6 +162,8 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
         
         // To test compute shader inpipeline
         GLuint createDynamicTexture (int w, int h);
+
+        void loadTextures (std::array<int, 2>& mapSize);
 
         // Inside the widget for executing compute shader
         void runCompute();
