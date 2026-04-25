@@ -38,6 +38,7 @@ set (SOURCES
 set (HEADERS
     ${HEADER_ROOT}/MainWindow.hxx
     ${HEADER_ROOT}/MyGLWidget.hxx
+    ${HEADER_ROOT}/LegacyGLApp.hxx
 )
 
 # Define output folders

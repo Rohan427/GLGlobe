@@ -1,5 +1,6 @@
 #pragma once
 
+//#include "LegacyGLApp.hxx"
 #include <iostream>
 #include <cstdlib>
 #include <array>
@@ -17,6 +18,8 @@
 #include <QElapsedTimer>
 #include <QImageReader>
 #include <QDateTime>
+#include <QPainter>
+//#include "MainWindow.hxx"
 
 
 #ifndef M_PI
@@ -24,7 +27,9 @@
 #endif
 
 // Constant update while debugging
-#include <QTimer>
+// #include <QTimer>
+
+static const float ZOOM_CLAMP = 0.17f;
 
 enum TextureIDs
 {
@@ -41,6 +46,13 @@ enum TextureIDs
     EARTH8K_BUMP,       // NE III, bump map 8K
     EARTH16k_BUMP,       //NE III, bump map 16K
     TEXTURE_END
+};
+
+struct City
+{
+    QString name;
+    float lat;
+    float lon;
 };
 
 class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core 
@@ -74,10 +86,21 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
 
         // Mouse sensitivity
         float sensitivity = 5.0f; // Adjust to feel
+        float rotSensitivity = 0.2f;
 
         // Initial globe settings
         float m_liveOffset = -90.0f;
         float m_liveTilt = 23.5f;
+        float m_ambientLevel = 0.15f;
+
+         // Radius 1.5, 64 sectors/stacks
+        const float globeRadius = 1.5f;
+        const int globeSectors = 64;
+        const int globeStacks = 64;
+
+        // Height of lbels above the globe. Put labels above globe, but not too far or they will "slide" due
+        // to perspective and zoom changes
+        float cityLabelHeight = globeRadius + 0.0001f; 
 
         struct texSizes
         {
@@ -110,10 +133,23 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
         QMap<QString, QOpenGLShaderProgram*> m_shaders;
         QOpenGLShaderProgram* m_currentProgram = nullptr;
 
+        // Map label fonts
+        QColor m_cityColor = Qt::cyan;
+        QColor m_textColor = Qt::white;
+        QColor m_shadowColor = Qt::black;
+        float m_markerSize = 5.0f;
+        int m_fontSize = 16; // Default size
+
+        std::vector<City> m_capitals;
+        void initCapitals();
+        QVector3D latLonToXYZ (float lat, float lon, float radius);
+
     public:
         // This constructor is required to use the widget in a layout
         explicit MyGLWidget (QWidget* parent = nullptr) : QOpenGLWidget (parent) 
-        {}
+        {
+            initCapitals();
+        }
 
     protected:
         void initializeGL() override;
@@ -177,14 +213,26 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
 
         void setSpinOffset (double val)
         {
-            m_liveOffset = val;
+            m_liveOffset = (float)val;
             updateStatus();
         }
 
         void setAxialTilt (double val)
         {
-            m_liveTilt = val;
+            m_liveTilt = (float)val;
             updateStatus();
+        }
+
+        void setAmbientLevel (double val)
+        {
+            m_ambientLevel = (float)val;
+            updateStatus();
+        }
+
+        void setFontSize (int size)
+        {
+            m_fontSize = size;
+            update();
         }
 
     signals:

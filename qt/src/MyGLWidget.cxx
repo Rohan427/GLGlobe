@@ -1,4 +1,5 @@
 #include "MyGLWidget.hxx"
+#include "MainWindow.hxx"
 
 void MyGLWidget::initializeGL() 
 {
@@ -18,48 +19,6 @@ void MyGLWidget::initializeGL()
     // 1. Simple Shaders (Passes texture and coordinates)
     m_program = new QOpenGLShaderProgram (this);
 
-    // Zoom, rotate, drag vertex shader
-    // 2D shader
-/*
-    m_program->addShaderFromSourceCode (QOpenGLShader::Vertex,
-                                        "attribute vec2 pos; attribute vec2 tex; \
-                                         varying vec2 vTex; \
-                                         uniform mat4 mvp; \
-                                         void main() { \
-                                            vTex = tex; \
-                                            gl_Position = mvp * vec4(pos, 0.0, 1.0); \
-                                        }"
-                                       );
-*/
-
-    // 3D shader
-/*
-    m_program->addShaderFromSourceCode (QOpenGLShader::Vertex,
-    "#version 430 core\n"
-    "layout(location = 0) in vec3 pos;\n"    // Switched to vec3
-    "layout(location = 1) in vec2 tex;\n"
-    "out vec2 vTex;\n"
-    "uniform mat4 mvp;\n"
-    "void main() {\n"
-    "    vTex = tex;\n"
-    "    gl_Position = mvp * vec4(pos, 1.0);\n"
-    "}");
-*/
-
-/* Original plain vertex shader
-    m_program->addShaderFromSourceCode (QOpenGLShader::Vertex,
-                                       "attribute vec2 pos; attribute vec2 tex; \
-        varying vec2 vTex; void main() { \
-    vTex = tex; gl_Position = vec4(pos, 0.0, 1.0); }");
-*/
-
-    // 3D shader
-/*
-    m_program->addShaderFromSourceCode (QOpenGLShader::Fragment,
-                                        "uniform sampler2D sampler; varying vec2 vTex; \
-                                         void main() { gl_FragColor = texture2D(sampler, vTex); }"
-                                       );
-*/
 //    registerShader ("Standard", "shaders/Earth.vert", "shaders/Earth.frag");
     registerShader ("NightLights", "shaders/Earth.vert", "shaders/Earth-night.frag");
 //    registerShader ("Atmosphere", "shaders/glow.vert", "shaders/glow.frag");
@@ -72,30 +31,13 @@ void MyGLWidget::initializeGL()
         qDebug() << "Shader Linker Error:" << m_program->log();
     }
 
-    generateSphere (1.5f, 64, 64); // Radius 1.5, 64 sectors/stacks
+    generateSphere (globeRadius, globeSectors, globeStacks);
 
     m_vbo.create();
     m_vbo.bind();
 
-    // 2D flat data
-    //m_vbo.allocate (data, sizeof (data));
-
-    // 3D cube data
-//    m_vbo.allocate (cubeData, sizeof (cubeData));
-
-    // 3D cude with normals
-//    m_vbo.allocate (cubeNormalData, sizeof (cubeNormalData));
-
     // 3D sphere
     m_vbo.allocate (m_sphereVertices.data(), m_sphereVertices.size() * sizeof (float));
-
-    // Start a 60 FPS timer to force repaints
-/*            QTimer* timer = new QTimer(this);
-    connect (timer, &QTimer::timeout, this, QOverload<>::of (&MyGLWidget::update));
-    timer->start (16); // ~60 FPS
-*/            
-    // Generate testing texture
-//    textureID = createDynamicTexture (512, 512);
 
     qDebug() << "Load texture";
     //textureID = loadTexture (mapSizes.huge, "textures/1_earth_16k.jpg");
@@ -121,31 +63,31 @@ void MyGLWidget::initializeGL()
 void MyGLWidget::paintGL() 
 {
     // Compute shader code
-    // 1. Run Compute Shader
 //    m_computeProgram->bind();
 //    m_computeProgram->setUniformValue ("time", (float)timer.elapsed() / 1000.0f);
     
     // Bind texture to Image Unit 0 (matching 'binding = 0' in shader)
-////    glBindImageTexture (0, textureID, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
+//    glBindImageTexture (0, textureID, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
     
     // Dispatch enough threads to cover a 512x512 texture (512/16 = 32 groups)
 //    glDispatchCompute (512 / 16, 512 / 16, 1);
     
     // Ensure compute finishes before the fragment shader tries to read it
-    glMemoryBarrier (GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+//    glMemoryBarrier (GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 //    m_computeProgram->release();
 
     // End compute shader code
 
 
     glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glEnable (GL_DEPTH_TEST);
 
-    // 1. Projection (The 4K Lens)
+    // Projection (The 4K Lens)
     float aspect = (float)width() / (float)height();
     QMatrix4x4 projection;
     projection.perspective (45.0f, aspect, 0.1f, 100.0f);
 
-    // 2. View (The Camera/Mouse controls)
+    // View (The Camera/Mouse controls)
     QMatrix4x4 view;
     view.translate (m_offset.x(), m_offset.y(), -10.0f * m_zoom);
     // These rotations let the mouse "orbit" the globe
@@ -154,10 +96,10 @@ void MyGLWidget::paintGL()
 
     QMatrix4x4 model;
 
-    // 1. Axial Tilt: Use a NEGATIVE rotation to tilt the North Pole TOWARD the sun in April
+    // Axial Tilt: Use a NEGATIVE rotation to tilt the North Pole TOWARD the sun in April
     model.rotate (m_liveTilt, 1.0f, 0.0f, 0.0f); 
 
-    // 2. Real-Time Spin:
+    // Real-Time Spin:
     // We use UTC time to avoid local daylight savings confusion
     qint64 msecs = QDateTime::currentDateTimeUtc().time().msecsSinceStartOfDay();
     float dayFraction = (float)msecs / 86400000.0f;
@@ -166,19 +108,17 @@ void MyGLWidget::paintGL()
     // -90 aligns 0-longitude with 'noon' at 12:00 UTC
     float spinAngle = (dayFraction * 360.0f) + m_liveOffset; 
     
-    model.rotate (spinAngle, 0.0f, 1.0f, 0.0f); 
+    model.rotate (spinAngle, 0.0f, 1.0f, 0.0f);
+
+    QMatrix4x4 mvp = projection * view * model;
+    QMatrix4x4 modelView = view * model; // Capture this for label culling
    
-
-    // For real-time testing (1 full rotation per 10 seconds)
-    //float timeScale = 10.0f; 
-    //float liveSpin = (timer.elapsed() / 1000.0f) * (360.0f / timeScale);
-    //model.rotate (liveSpin, 0.0f, 1.0f, 0.0f);
-
     // 4. Update Uniforms
     m_program->bind();
+    m_program->setUniformValue ("ambientIntensity", (float)m_ambientLevel);
     m_program->setUniformValue ("modelMatrix", model);
     m_program->setUniformValue ("sunDirection", QVector3D (0, 0, 1));
-    m_program->setUniformValue ("mvp", projection * view * model);
+    m_program->setUniformValue ("mvp", mvp);
 
     // Bind Day Texture to Unit 0
     glActiveTexture (GL_TEXTURE0);
@@ -207,9 +147,6 @@ void MyGLWidget::paintGL()
     m_vao.release();
     m_program->release();
 
-
-
-
     // FPS Logic
     static int frames = 0;
     static QElapsedTimer fpsTimer;
@@ -233,6 +170,104 @@ void MyGLWidget::paintGL()
         frames = 0;
         fpsTimer.restart();
     }
+
+    /*************** City labels ***************/
+    glDisable (GL_DEPTH_TEST);
+    glDisable (GL_CULL_FACE);
+    QPainter painter(this);
+
+//    painter.beginNativePainting();
+
+    painter.setRenderHint (QPainter::Antialiasing);
+    QRect viewport (0, 0, width(), height());
+
+    // Paint test (a large point on the North Pole, always visible
+/*
+    // 2. Use the exact matrices from your globe draw
+    QVector3D northPole (0.0f, 1.51f, 0.0f); // North Pole is Y-up
+
+    // 3. Manual Projection to bypass 'project()' bugs
+    QVector4D clipPos = mvp * QVector4D (northPole, 1.0f);
+
+    if (clipPos.w() != 0.0f) {
+        // Convert to Normalized Device Coordinates (-1 to 1)
+        float ndcX = clipPos.x() / clipPos.w();
+        float ndcY = clipPos.y() / clipPos.w();
+        float ndcZ = clipPos.z() / clipPos.w();
+
+        // Only draw if it's within the view frustum (Z is -1 to 1 in NDC)
+        if (ndcZ >= -1.0f && ndcZ <= 1.0f) {
+            // Convert NDC to Pixel Coordinates
+            int x = (int)((ndcX + 1.0f) * 0.5f * width());
+            int y = (int)((1.0f - ndcY) * 0.5f * height());
+
+            // Draw a giant marker to confirm it exists
+            painter.setBrush(Qt::green);
+            painter.setPen(QPen(Qt::white, 4));
+            painter.drawEllipse(QPoint(x, y), 20, 20);
+            
+            painter.setFont(QFont("Arial", 16, QFont::Bold));
+            painter.drawText(x + 25, y, "NP");
+        }
+    }
+*/
+    for (const auto& city : m_capitals)
+    {
+        QVector3D worldPos = latLonToXYZ (city.lat, city.lon, cityLabelHeight);
+        QVector4D clipPos = mvp * QVector4D (worldPos, 1.0f);
+
+        // Set up the Pen (for the outline and text)
+        QPen myPen (m_textColor);
+        myPen.setWidth (1); 
+
+        // Set up the Brush (for the fill of the circle)
+        QBrush myBrush (m_cityColor);
+        painter.setBrush (myBrush);
+
+        // Set up the shadow pen
+        QPen shadowPen (m_shadowColor);
+        shadowPen.setWidth (7);
+
+        // Create a font object with your preferred family
+        QFont cityFont ("Arial", m_fontSize, QFont::Normal);
+        painter.setFont (cityFont);
+        
+        if (clipPos.w() != 0.0f)
+        {
+            float ndcX = clipPos.x() / clipPos.w();
+            float ndcY = clipPos.y() / clipPos.w();
+            float ndcZ = clipPos.z() / clipPos.w();
+
+            // 1. Frustum Check (Is it in view?)
+            // 2. Depth Check (Is it on the front side? ndcZ < 0.5 is a safe bet here)
+            if (ndcZ >= -1.0f && ndcZ <= 1.0f)
+            {
+                // Front-side check: Transform to View Space to check Z
+                if ((view * model).map (worldPos).z() > (view * model).map (QVector3D (0, 0, 0)).z())
+                {
+                    int x = (int)((ndcX + 1.0f) * 0.5f * width());
+                    int y = (int)((1.0f - ndcY) * 0.5f * height());
+
+//                    painter.setBrush (Qt::cyan);
+//                    painter.setPen (QPen (Qt::black, 1));
+
+                    painter.drawEllipse (QPointF (x, y), m_markerSize, m_markerSize);
+                    
+                    painter.setPen (shadowPen);
+                    painter.drawText (x + 5, y + 5, city.name);
+
+                    painter.setPen (myPen);
+                    painter.drawText (x + 10, y, city.name);
+                }
+            }
+        }
+    }
+
+//    painter.endNativePainting(); 
+
+    painter.end();
+
+    glEnable (GL_DEPTH_TEST);
 
     updateStatus();
 } // MyGLWidget::paintGL() 
@@ -270,25 +305,35 @@ void MyGLWidget::wheelEvent (QWheelEvent *event)
 {
     float delta = event->angleDelta().y() > 0 ? 1.1f : 0.9f;
     m_zoom *= delta;
+
+    if (m_zoom < ZOOM_CLAMP)
+    {
+        m_zoom = ZOOM_CLAMP;
+    }
+
     updateStatus();
 }
 
 void MyGLWidget::mouseMoveEvent (QMouseEvent *event)
 {
+    float adaptiveSens = sensitivity * m_zoom; 
+    float currentAspect = (float)width() / (float)height();
+
     if (event->buttons() & Qt::LeftButton)
     {
         QPoint diff = event->pos() - m_lastMousePos;
         // Dragging logic (adjust sensitivity as needed)
         m_offset += QVector2D (
-                                (diff.x() * aspect * sensitivity) / (float)width(),
-                                (-diff.y() * sensitivity) / (float)height()
+                                (diff.x() * currentAspect * adaptiveSens) / (float)width(),
+                                (-diff.y() * adaptiveSens) / (float)height()
                               );
     }
     else if (event->buttons() & Qt::RightButton)
     {
         QPoint diff = event->pos() - m_lastMousePos;
         // Rotation logic
-        m_rotation += QVector2D (diff.y(), diff.x());
+        adaptiveSens = rotSensitivity * m_zoom;
+        m_rotation += QVector2D (diff.y() * adaptiveSens, diff.x() * adaptiveSens);
     }
 
     m_lastMousePos = event->pos();
@@ -538,6 +583,11 @@ void MyGLWidget::initializeGlobePosition()
 {
     m_zoom = 1.0f;
     m_offset = QVector2D (0.0f, 0.0f);
+    m_liveOffset = -90.0f;
+    m_liveTilt = 23.5f;
+    m_ambientLevel = 0.15f;
+
+    MainWindow::instance()->logMessage ("Globe reset to default position");
 }
 
 
@@ -564,8 +614,7 @@ GLuint MyGLWidget::loadTexture (std::array<int, 2>& mapSize, const QString& file
 
     if (img.isNull())
     {
-        std::cout << "Load failed: " << reader.errorString().toStdString().c_str() << std::endl;;
-        std::cout << "Load failed: " << reader.errorString().toStdString().c_str() << std::endl;;
+        std::cout << "Load failed: " << reader.errorString().toStdString().c_str() << std::endl;
         return 0;
     }
 
@@ -663,4 +712,34 @@ bool MyGLWidget::registerShader (const QString& name, const QString& vFile, cons
     }
 
     return false;
+}
+
+void MyGLWidget::initCapitals()
+{
+    m_capitals =
+    {
+        {"Denver, CO", 39.7392, -104.9903},
+        {"Augusta, ME", 44.3106, -69.7795},
+        {"Sacramento, CA", 38.5816, -121.4944},
+        {"Tallahassee, FL", 30.4383, -84.2807},
+        {"Austin, TX", 30.2672, -97.7431},
+        {"Albany, NY", 42.6526, -73.7562},
+        {"NULL ISLAND", 0.0, 0.0}
+        // ... add the rest here
+    };
+}
+
+QVector3D MyGLWidget::latLonToXYZ (float lat, float lon, float radius)
+{
+    float latRad = qDegreesToRadians (lat);
+    float lonRad = qDegreesToRadians (lon + m_liveOffset);
+
+    // Matches the North Pole logic: 
+    // At lat=90, sin(90)=1, so y = radius. 
+    // At lat=0 (equator), sin(0)=0, so y = 0.
+    float x = radius * cos(latRad) * sin(lonRad);
+    float y = radius * sin(latRad);
+    float z = radius * cos(latRad) * cos(lonRad);
+
+    return QVector3D(x, y, z);
 }

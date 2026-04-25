@@ -23,7 +23,7 @@ int main (int argc, char *argv[])
     fmt.setProfile (QSurfaceFormat::CoreProfile);
 
     // Set MSAA precision
-    fmt.setSamples (8); // 8x MSAA
+    fmt.setSamples (16); // 8x MSAA
     QSurfaceFormat::setDefaultFormat (fmt);
 
     QGuiApplication::setHighDpiScaleFactorRoundingPolicy (Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
