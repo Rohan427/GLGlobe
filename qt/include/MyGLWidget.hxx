@@ -21,15 +21,20 @@
 #include <QPainter>
 #include <QFile>
 #include <QFileInfo>
+#include <QtMath>
 //#include "MainWindow.hxx"
+
+#include "SGP4.h"
+#include "Tle.h"
+#include "CoordGeodetic.h"
+#include <memory>
 
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-// Constant update while debugging
-// #include <QTimer>
+using namespace libsgp4;
 
 static const float ZOOM_CLAMP = 0.17f;
 
@@ -50,7 +55,6 @@ enum TextureIDs
     TEXTURE_END
 };
 
-
 class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core 
 {
     private:
@@ -62,6 +66,13 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
         QOpenGLVertexArrayObject m_vao;
         QOpenGLShaderProgram* m_program;
         QOpenGLBuffer m_vbo;
+
+        // TLE objects
+        std::unique_ptr<SGP4> m_issPropagator;
+        QVector3D m_issPos;
+        QElapsedTimer m_satTimer;
+        QVector3D m_lastIssPos;
+
 
         // Shared matrix variables
         QMatrix4x4 modelMatrix;
@@ -167,6 +178,11 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
         }
 
     protected:
+        // TLE
+        void initSatellites();
+        void updateSatellitePhysics (qint64 msecs);
+
+
         void initializeGL() override;
         void paintGL() override;
 

@@ -25,6 +25,7 @@ set (HEADER_ROOT ${CMAKE_SOURCE_DIR}/include)
 
 set (HEADER_FILES
     ${HEADER_ROOT}
+    "$ENV{SPG4_HEADERS}"
 )
 
 # Define your source files
@@ -32,10 +33,11 @@ set (SOURCES
     ${SOURCE_ROOT}/Main.cxx
     ${SOURCE_ROOT}/MainWindow.cxx
     ${SOURCE_ROOT}/MyGLWidget.cxx
-#    ${SOURCE_ROOT}/MyGLWidget.cpp
 )
 
 set (HEADERS
+    "$ENV{SPG4_HEADERS}/SGP4.h"
+    "$ENV{SPG4_HEADERS}/Tle.h"
     ${HEADER_ROOT}/MainWindow.hxx
     ${HEADER_ROOT}/MyGLWidget.hxx
     ${HEADER_ROOT}/LegacyGLApp.hxx
@@ -56,6 +58,7 @@ target_link_libraries (LegacyGLApp PRIVATE
     Qt6::OpenGL 
     Qt6::OpenGLWidgets
     OpenGL::GL
+    "$ENV{SPG4_LIB}/libsgp4s.so"
 )
 
 target_include_directories (LegacyGLApp PRIVATE ${HEADER_FILES})
@@ -63,6 +66,12 @@ target_include_directories (LegacyGLApp PRIVATE ${HEADER_FILES})
 add_custom_command (TARGET LegacyGLApp POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${SOURCE_ROOT}/globe/shaders"
+            "$<TARGET_FILE_DIR:LegacyGLApp>/shaders"
+)
+
+add_custom_command (TARGET LegacyGLApp POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${SOURCE_ROOT}/objects/shaders/Satellite.vert"
             "$<TARGET_FILE_DIR:LegacyGLApp>/shaders"
 )
 

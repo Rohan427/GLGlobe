@@ -4,6 +4,7 @@
 void MyGLWidget::initializeGL() 
 {
     initCapitals ("/home/pgallen/Downloads/capitals.csv");
+    initSatellites();
 
     initializeOpenGLFunctions(); // Required in Qt to access gl* calls
 
@@ -183,18 +184,21 @@ void MyGLWidget::paintGL()
         frames = 0;
         fpsTimer.restart();
     }
+    
 
-    /*************** City labels ***************/
-    if (m_showCities)
-    {
+        /********************** 2D Painter *********************/
         glDisable (GL_DEPTH_TEST);
         glDisable (GL_CULL_FACE);
-        QPainter painter(this);
+        QPainter painter (this);
 
     //    painter.beginNativePainting();
 
         painter.setRenderHint (QPainter::Antialiasing);
         QRect viewport (0, 0, width(), height());
+
+    /*************** City labels ***************/
+    if (m_showCities)
+    {
 
         // Paint test (a large point on the North Pole, always visible
     /*
@@ -307,11 +311,36 @@ void MyGLWidget::paintGL()
                 } // if (ndcZ >= -1.0f && ndcZ <= 1.0f)
             } // if (clipPos.w() != 0.0f)
         } // for (const auto& city : m_capitals)
-
-    //    painter.endNativePainting(); 
-
-        painter.end();
     } // if (m_showCities)
+
+    // Satellites
+    if (!m_satTimer.isValid() || m_satTimer.elapsed() > 100)
+    {
+        qint64 currentMsecs = QDateTime::currentDateTimeUtc().toMSecsSinceEpoch();
+        updateSatellitePhysics (currentMsecs); // Update position for this frame
+        m_lastIssPos = m_issPos; // Store the stable position
+        m_satTimer.restart();
+    }
+    
+
+    QVector4D clipPos = mvp * QVector4D (m_lastIssPos, 1.0f);
+
+    if (std::abs (clipPos.w()) > 0.001f)
+    { // Use a safer epsilon check
+        float ndcX = clipPos.x() / clipPos.w();
+        float ndcY = clipPos.y() / clipPos.w();
+
+        int x = (int)((ndcX + 1.0f) * 0.5f * width());
+        int y = (int)((1.0f - ndcY) * 0.5f * height());
+
+        painter.setBrush (Qt::magenta); // Bright magenta for visibility
+        painter.drawEllipse (QPoint (x, y), 6, 6);
+        painter.drawText (x + 10, y, "ISS");
+    }
+
+//    painter.endNativePainting(); 
+
+    painter.end();
 
     glEnable (GL_DEPTH_TEST);
 
@@ -895,9 +924,86 @@ QVector3D MyGLWidget::latLonToXYZ (float lat, float lon, float radius)
     // Matches the North Pole logic: 
     // At lat=90, sin(90)=1, so y = radius. 
     // At lat=0 (equator), sin(0)=0, so y = 0.
-    float x = radius * cos(latRad) * sin(lonRad);
-    float y = radius * sin(latRad);
-    float z = radius * cos(latRad) * cos(lonRad);
+    float x = radius * cos (latRad) * sin (lonRad);
+    float y = radius * sin (latRad);
+    float z = radius * cos (latRad) * cos (lonRad);
 
-    return QVector3D(x, y, z);
+    return QVector3D (x, y, z);
+}
+
+void MyGLWidget::initSatellites()
+{
+    // Use Raw String Literals R"(...)" to ensure no escape-character issues
+std::string l1 = R"(1 25544U 98067A   26116.51782528  .00002182  00000-0  10000-3 0  9993)";
+std::string l2 = R"(2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537)";
+    
+    try
+    {
+        // 2. Create the Tle object
+        libsgp4::Tle tle ("ISS", l1, l2);
+
+        // 3. Instantiate the SGP4 propagator into your unique_ptr
+        // This is where m_issPropagator finally stops being null
+        m_issPropagator = std::make_unique<libsgp4::SGP4> (tle);
+
+        MainWindow::instance()->logMessage ("ISS Propagator initialized successfully.");
+    }
+    catch (const std::exception& e)
+    {
+        MainWindow::instance()->logMessage (QString ("SGP4 Error: %1").arg (e.what()));
+    }
+}
+
+void MyGLWidget::updateSatellitePhysics (qint64 msecs)
+{
+    if (!m_issPropagator)
+    {
+        MainWindow::instance()->logMessage ("ISS Propagator not initialized.");
+        return;
+    }
+
+    // Use the modern Qt 6 static method
+    QDateTime qtTime = QDateTime::fromMSecsSinceEpoch (msecs, Qt::UTC);
+        
+    // SGP4 DateTime uses (Year, Month, Day, Hour, Minute, Second)
+    libsgp4::DateTime dt (qtTime.date().year(),
+                          qtTime.date().month(),
+                          qtTime.date().day(), 
+                          qtTime.time().hour(),
+                          qtTime.time().minute(),
+                          qtTime.time().second()
+                         );
+
+// libsgp4::DateTime dt (2024, 4, 25, 12, 0, 0); 
+
+    // 2. Propagate
+    libsgp4::Eci eci = m_issPropagator->FindPosition (dt);
+    
+    // CRITICAL: Eci coordinates are Inertial (they don't rotate with Earth).
+    // ToGeodetic() converts them to Lat/Lon/Alt FIXED to the rotating Earth.
+    libsgp4::CoordGeodetic geo = eci.ToGeodetic();
+
+    // LOG TO CONSOLE FOR DEBUG
+/*    QString debugMsg = QString ("ISS - Lat: %1, Lon: %2, Alt: %3km | XYZ: %4, %5, %6")
+                                .arg (qRadiansToDegrees (geo.latitude), 0, 'f', 2)
+                                .arg (qRadiansToDegrees (geo.longitude), 0, 'f', 2)
+                                .arg (geo.altitude, 0, 'f', 1)
+                                .arg (m_issPos.x(), 0, 'f', 2)
+                                .arg (m_issPos.y(), 0, 'f', 2)
+                                .arg (m_issPos.z(), 0, 'f', 2);
+
+    MainWindow::instance()->logMessage (debugMsg);
+*/
+    // If FindPosition fails, geo coordinates will be 0,0,0 (Center of Earth).
+//    if (std::isnan (geo.latitude) || (geo.latitude == 0 && geo.longitude == 0))
+//    {
+//        // Log error to your new console
+//        MainWindow::instance()->logMessage ("SGP4 Propagation Failed: Check TLE strings.");
+//        return;
+//    }
+
+    float altMultiplier = (6371.0f + (float)geo.altitude) / 6371.0f;
+    m_issPos = latLonToXYZ (qRadiansToDegrees (geo.latitude), 
+                            qRadiansToDegrees (geo.longitude), 
+                            globeRadius * altMultiplier);
 }
