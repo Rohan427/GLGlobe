@@ -16,7 +16,7 @@ void main()
     vec3 worldNormal = normalize (mat3 (modelMatrix) * normal);
 
     // Light is calculated against the fixed Sun direction
-    vDiffuse = max(dot (worldNormal, normalize (sunDirection)), 0.0);
+    vDiffuse = max (dot (worldNormal, normalize (sunDirection)), 0.0);
 
     gl_Position = mvp * vec4 (pos, 1.0);
 }

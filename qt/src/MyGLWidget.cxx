@@ -3,6 +3,8 @@
 
 void MyGLWidget::initializeGL() 
 {
+    initCapitals ("/home/pgallen/Downloads/capitals.csv");
+
     initializeOpenGLFunctions(); // Required in Qt to access gl* calls
 
     // These two lines enable 3D depth testing
@@ -21,10 +23,10 @@ void MyGLWidget::initializeGL()
 
 //    registerShader ("Standard", "shaders/Earth.vert", "shaders/Earth.frag");
     registerShader ("NightLights", "shaders/Earth.vert", "shaders/Earth-night.frag");
-//    registerShader ("Atmosphere", "shaders/glow.vert", "shaders/glow.frag");
+    registerShader ("BumpLights", "shaders/Earth-Bump.vert", "shaders/Earth-Bump.frag");
 
     // Set the default
-    m_program = m_shaders["NightLights"];
+    m_program = m_shaders["BumpLights"];
 
     if (!m_program->link())
     {
@@ -49,8 +51,9 @@ void MyGLWidget::initializeGL()
         return;
     }
 
-    dayTextureID = textureMap["earth16k"];
+    dayTextureID =   textureMap["earthncice16k"];
     nightTextureID = textureMap["earthnight16k"];
+    bumpTextureID =  textureMap["earthbump16k"];
     //textureID = textureMap["earth16k"];
 
     std::cout << "Texture ID is " << textureID << std::endl;
@@ -112,6 +115,11 @@ void MyGLWidget::paintGL()
 
     QMatrix4x4 mvp = projection * view * model;
     QMatrix4x4 modelView = view * model; // Capture this for label culling
+
+    // Save matrices for reference
+    modelMatrix = model;
+    viewMatrix = view;
+    projectMatrix = projection;
    
     // 4. Update Uniforms
     m_program->bind();
@@ -129,6 +137,11 @@ void MyGLWidget::paintGL()
     glActiveTexture (GL_TEXTURE1);
     glBindTexture (GL_TEXTURE_2D, nightTextureID);
     m_program->setUniformValue ("nightSampler", 1);
+
+    // Bind the Bump/Height Map
+    glActiveTexture (GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, bumpTextureID);
+    m_program->setUniformValue("bumpSampler", 2);
 
     // 3. Drawing
     m_vao.bind();
@@ -252,12 +265,42 @@ void MyGLWidget::paintGL()
 //                    painter.setPen (QPen (Qt::black, 1));
 
                     painter.drawEllipse (QPointF (x, y), m_markerSize, m_markerSize);
-                    
-                    painter.setPen (shadowPen);
-                    painter.drawText (x + 5, y + 5, city.name);
 
-                    painter.setPen (myPen);
-                    painter.drawText (x + 10, y, city.name);
+                    if (m_selectedCity)
+                    {
+                        QVector3D worldPos = latLonToXYZ (m_selectedCity->lat, m_selectedCity->lon, cityLabelHeight);
+                        QVector4D clipPos = mvp * QVector4D (worldPos, 1.0f);
+                        
+                        // Convert to pixel space
+                        int x = (int)((clipPos.x() / clipPos.w() + 1.0f) * 0.5f * width());
+                        int y = (int)((1.0f - clipPos.y() / clipPos.w()) * 0.5f * height());
+
+                        // Info Card Styling
+                        int cardW = 200;
+                        int cardH = 80;
+                        QRect cardRect (x + 20, y - 40, cardW, cardH);
+
+                        // Draw Background with Transparency
+                        painter.setBrush (QColor (0, 0, 0, 180)); // Semi-transparent black
+                        painter.setPen (QPen (Qt::cyan, 2));
+                        painter.drawRoundedRect (cardRect, 10, 10);
+
+                        // Draw Content
+                        painter.setPen (Qt::white);
+                        painter.setFont (QFont ("Arial", m_fontSize, QFont::Bold));
+                        painter.drawText (cardRect.adjusted (10, 10, -10, -10), Qt::AlignTop, m_selectedCity->name);
+                        
+                        painter.setFont (QFont ("Arial", m_fontSize));
+                        painter.drawText (cardRect.adjusted (10, 35, -10, -10), Qt::AlignTop, m_selectedCity->extraInfo);
+                    }
+                    else
+                    {
+                        painter.setPen (shadowPen);
+                        painter.drawText (x + 5, y + 5, city.name);
+
+                        painter.setPen (myPen);
+                        painter.drawText (x + 10, y, city.name);
+                    }
                 }
             }
         }
@@ -271,7 +314,6 @@ void MyGLWidget::paintGL()
 
     updateStatus();
 } // MyGLWidget::paintGL() 
-
 
 void MyGLWidget::resizeGL (int w, int h)
 {
@@ -342,7 +384,58 @@ void MyGLWidget::mouseMoveEvent (QMouseEvent *event)
 
 void MyGLWidget::mousePressEvent (QMouseEvent *event)
 {
+    QString log;
+
+    // Save for dragging, rotating
     m_lastMousePos = event->pos();
+
+    if (event->button() & Qt::LeftButton)
+    {
+        // --- Picking Logic ---
+        QMatrix4x4 mvp = projectMatrix * viewMatrix * modelMatrix;
+        QMatrix4x4 modelView = viewMatrix * modelMatrix;
+        float width = (float)this->width();
+        float height = (float)this->height();
+
+        for (const auto& city : m_capitals)
+        {
+            QVector3D worldPos = latLonToXYZ (city.lat, city.lon, cityLabelHeight);
+            
+            // 1. Only check cities on the front side
+            if (modelView.map (worldPos).z() > modelView.map (QVector3D (0, 0, 0)).z())
+            {                
+                // 3. Project to NDC (-1 to 1)
+                QVector4D clipPos = mvp * QVector4D (worldPos, 1.0f);
+
+                if (clipPos.w() != 0.0f)
+                {
+                    float ndcX = clipPos.x() / clipPos.w();
+                    float ndcY = clipPos.y() / clipPos.w();
+                    
+                    // 4. Convert to Pixel Space (Same as your working NP code)
+                    float pixelX = (ndcX + 1.0f) * 0.5f * width;
+                    float pixelY = (1.0f - ndcY) * 0.5f * height;
+
+                    // 5. Check distance against Mouse Position
+                    // Use event->position() for Qt 6 high-DPI accuracy
+                    QVector2D cityPixel (pixelX, pixelY);
+                    float dist = (cityPixel - QVector2D (event->position())).length();
+
+                    if (dist < 10.0f)
+                    {
+                        m_selectedCity = &city; // Store reference
+                        MainWindow::instance()->logMessage ("Selected: " + city.name);
+                        update(); // Force redraw for the info card
+                        return;
+                    }
+
+                    m_selectedCity = nullptr; // Clear if no city clicked
+                }
+            }
+        }
+    }
+    
+    update();
 }
 
 GLuint MyGLWidget::createSimpleTexture (int w, int h)
@@ -714,8 +807,69 @@ bool MyGLWidget::registerShader (const QString& name, const QString& vFile, cons
     return false;
 }
 
-void MyGLWidget::initCapitals()
+void MyGLWidget::initCapitals (QString filename)
 {
+    std::cout << "Reading .csv file" << std::endl;
+
+    MainWindow::instance()->logMessage (QString ("Opening City file: %1")
+                                        .arg (filename));
+
+    m_capitals.clear();
+
+    // Verify file existence and readability before instantiating QFile
+    QFileInfo checkFile (filename);
+
+    if (!checkFile.exists() || !checkFile.isFile())
+    {
+        std::cout << "File does not exist" << std::endl;
+
+        MainWindow::instance()->logMessage (QString ("CRITICAL: %1 not found at %2")
+                                            .arg (filename)
+                                            .arg (checkFile.absoluteFilePath()));
+        return;
+    }
+
+    // Safe instantiation
+    QFile file (filename); 
+
+    if (!file.open (QIODevice::ReadOnly | QIODevice::Text))
+    {
+        std::cout << "Failed to open file" << std::endl;
+        MainWindow::instance()->logMessage (QString ("ERROR: Could not open %1. Reason: %2")
+                                            .arg (filename)
+                                            .arg (file.errorString()));
+        return;
+    }
+
+    std::cout << "File opened" << std::endl;
+    MainWindow::instance()->logMessage ("Successfully opened " + filename);
+
+    QTextStream in (&file);
+    // Skip header line if your CSV has one
+    if (!in.atEnd()) in.readLine(); 
+
+    while (!in.atEnd())
+    {
+        QString line = in.readLine();
+        QStringList fields = line.split (","); // Use ';' if your CSV uses semicolons
+        
+        if (fields.size() >= 6)
+        {
+            City city;
+            // Adjust indices based on your CSV structure (Name, Lat, Lon, Population, etc.)
+            city.name = fields[0].trimmed().remove ('"');
+            city.lat = fields[3].toFloat();
+            city.lon = fields[4].toFloat();
+            city.extraInfo = "Population: " + fields[5].trimmed();
+
+            m_capitals.push_back (city);
+        }
+    }
+
+    file.close();
+
+    MainWindow::instance()->logMessage (QString ("Loaded %1 cities.").arg (m_capitals.size()));
+/*
     m_capitals =
     {
         {"Denver, CO", 39.7392, -104.9903},
@@ -727,6 +881,7 @@ void MyGLWidget::initCapitals()
         {"NULL ISLAND", 0.0, 0.0}
         // ... add the rest here
     };
+*/
 }
 
 QVector3D MyGLWidget::latLonToXYZ (float lat, float lon, float radius)

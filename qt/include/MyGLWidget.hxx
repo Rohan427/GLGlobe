@@ -19,6 +19,8 @@
 #include <QImageReader>
 #include <QDateTime>
 #include <QPainter>
+#include <QFile>
+#include <QFileInfo>
 //#include "MainWindow.hxx"
 
 
@@ -48,12 +50,6 @@ enum TextureIDs
     TEXTURE_END
 };
 
-struct City
-{
-    QString name;
-    float lat;
-    float lon;
-};
 
 class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core 
 {
@@ -62,9 +58,15 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
         GLuint textureID = 0;
         GLuint dayTextureID = 0;
         GLuint nightTextureID = 0;
+        GLuint bumpTextureID = 0;
         QOpenGLVertexArrayObject m_vao;
         QOpenGLShaderProgram* m_program;
         QOpenGLBuffer m_vbo;
+
+        // Shared matrix variables
+        QMatrix4x4 modelMatrix;
+        QMatrix4x4 viewMatrix;
+        QMatrix4x4 projectMatrix;
 
         // Shader program for compute tasks
         QOpenGLShaderProgram* m_computeProgram;
@@ -78,7 +80,7 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
 
         QString m_currentStatusString; // To store the "Zoom/Rot/Pos" text
 
-        // For storing shpere vertex data
+        // For storing sPHere vertex data
         std::vector<float> m_sphereVertices;
 
         // Track window aspect ratio
@@ -98,7 +100,7 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
         const int globeSectors = 64;
         const int globeStacks = 64;
 
-        // Height of lbels above the globe. Put labels above globe, but not too far or they will "slide" due
+        // Height of labels above the globe. Put labels above globe, but not too far or they will "slide" due
         // to perspective and zoom changes
         float cityLabelHeight = globeRadius + 0.0001f; 
 
@@ -140,15 +142,27 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
         float m_markerSize = 5.0f;
         int m_fontSize = 16; // Default size
 
+        // City handling
+        struct City
+        {
+            QString name;
+            float lat;
+            float lon;
+            QString extraInfo; // For future data
+        };
+
         std::vector<City> m_capitals;
-        void initCapitals();
+        const City* m_selectedCity = nullptr;
+
+        /*********************** Functions *******************/
+
+        void initCapitals (QString filename);
         QVector3D latLonToXYZ (float lat, float lon, float radius);
 
     public:
         // This constructor is required to use the widget in a layout
         explicit MyGLWidget (QWidget* parent = nullptr) : QOpenGLWidget (parent) 
         {
-            initCapitals();
         }
 
     protected:
