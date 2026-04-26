@@ -10,6 +10,8 @@
 #include <QShortcut>
 #include <QKeySequence>
 #include <QDoubleSpinBox>
+#include <QToolButton>
+#include <QMenu>
 #include "MyGLWidget.hxx"
 
 class MainWindow : public QMainWindow

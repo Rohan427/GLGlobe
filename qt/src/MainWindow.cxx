@@ -14,6 +14,25 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow(parent)
     // Create Top Toolbar (for the toggle button)
     QHBoxLayout* toolbar = new QHBoxLayout();
 
+    // Create the Settings Menu
+    QMenu* settingsMenu = new QMenu ("Settings", this);
+    settingsMenu->setStyleSheet ("QMenu::item { padding: 10px 20px; font-size: 14pt; }");
+
+    // Create the Toggle Action
+    QAction* toggleCityAct = new QAction ("Show Cities", this);
+    toggleCityAct->setCheckable (true); // Turns it into a checkbox
+    toggleCityAct->setChecked (true);    // Default to 'On'
+
+    // Add a Tool Button to the toolbar that opens this menu
+    QToolButton* settingsBtn = new QToolButton (this);
+    settingsBtn->setText ("Settings");
+    settingsBtn->setPopupMode (QToolButton::InstantPopup);
+    settingsBtn->setMenu (settingsMenu);
+    toolbar->addWidget (settingsBtn);
+
+    // Add the action to the menu
+    settingsMenu->addAction (toggleCityAct);
+
     // Create a Toggle Button (at the top of the sidebar or in a toolbar)
     QPushButton* toggleBtn = new QPushButton ("« Toggle Sidebar (Tab)", this);
     toggleBtn->setFixedWidth (220);
@@ -39,7 +58,6 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow(parent)
     sidebar->addWidget (refreshBtn);
     QPushButton* resetBtn = new QPushButton ("Reset View", this);
     sidebar->addWidget (resetBtn);
-
 
     //********** Controls for adjusting globe alignment **********//
     QVBoxLayout* controlLayout = new QVBoxLayout();
@@ -83,6 +101,7 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow(parent)
     connect (offsetSpin, &QDoubleSpinBox::valueChanged, glViewport, &MyGLWidget::setSpinOffset);
     connect (tiltSpin, &QDoubleSpinBox::valueChanged, glViewport, &MyGLWidget::setAxialTilt);
     connect (ambientSpin, &QDoubleSpinBox::valueChanged, glViewport, &MyGLWidget::setAmbientLevel);
+    connect (toggleCityAct, &QAction::toggled, glViewport, &MyGLWidget::toggleCities);
 
     //********** END Controls (Remove when complete **********//
 

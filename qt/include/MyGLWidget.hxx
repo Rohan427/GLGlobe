@@ -153,6 +153,7 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
 
         std::vector<City> m_capitals;
         const City* m_selectedCity = nullptr;
+        bool m_showCities = true;
 
         /*********************** Functions *******************/
 
@@ -246,6 +247,12 @@ class MyGLWidget : public QOpenGLWidget, protected QOpenGLFunctions_4_3_Core
         void setFontSize (int size)
         {
             m_fontSize = size;
+            update();
+        }
+
+        void toggleCities (bool visible)
+        {
+            m_showCities = visible;
             update();
         }
 

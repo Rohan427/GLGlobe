@@ -185,130 +185,133 @@ void MyGLWidget::paintGL()
     }
 
     /*************** City labels ***************/
-    glDisable (GL_DEPTH_TEST);
-    glDisable (GL_CULL_FACE);
-    QPainter painter(this);
-
-//    painter.beginNativePainting();
-
-    painter.setRenderHint (QPainter::Antialiasing);
-    QRect viewport (0, 0, width(), height());
-
-    // Paint test (a large point on the North Pole, always visible
-/*
-    // 2. Use the exact matrices from your globe draw
-    QVector3D northPole (0.0f, 1.51f, 0.0f); // North Pole is Y-up
-
-    // 3. Manual Projection to bypass 'project()' bugs
-    QVector4D clipPos = mvp * QVector4D (northPole, 1.0f);
-
-    if (clipPos.w() != 0.0f) {
-        // Convert to Normalized Device Coordinates (-1 to 1)
-        float ndcX = clipPos.x() / clipPos.w();
-        float ndcY = clipPos.y() / clipPos.w();
-        float ndcZ = clipPos.z() / clipPos.w();
-
-        // Only draw if it's within the view frustum (Z is -1 to 1 in NDC)
-        if (ndcZ >= -1.0f && ndcZ <= 1.0f) {
-            // Convert NDC to Pixel Coordinates
-            int x = (int)((ndcX + 1.0f) * 0.5f * width());
-            int y = (int)((1.0f - ndcY) * 0.5f * height());
-
-            // Draw a giant marker to confirm it exists
-            painter.setBrush(Qt::green);
-            painter.setPen(QPen(Qt::white, 4));
-            painter.drawEllipse(QPoint(x, y), 20, 20);
-            
-            painter.setFont(QFont("Arial", 16, QFont::Bold));
-            painter.drawText(x + 25, y, "NP");
-        }
-    }
-*/
-    for (const auto& city : m_capitals)
+    if (m_showCities)
     {
-        QVector3D worldPos = latLonToXYZ (city.lat, city.lon, cityLabelHeight);
-        QVector4D clipPos = mvp * QVector4D (worldPos, 1.0f);
+        glDisable (GL_DEPTH_TEST);
+        glDisable (GL_CULL_FACE);
+        QPainter painter(this);
 
-        // Set up the Pen (for the outline and text)
-        QPen myPen (m_textColor);
-        myPen.setWidth (1); 
+    //    painter.beginNativePainting();
 
-        // Set up the Brush (for the fill of the circle)
-        QBrush myBrush (m_cityColor);
-        painter.setBrush (myBrush);
+        painter.setRenderHint (QPainter::Antialiasing);
+        QRect viewport (0, 0, width(), height());
 
-        // Set up the shadow pen
-        QPen shadowPen (m_shadowColor);
-        shadowPen.setWidth (7);
+        // Paint test (a large point on the North Pole, always visible
+    /*
+        // 2. Use the exact matrices from your globe draw
+        QVector3D northPole (0.0f, 1.51f, 0.0f); // North Pole is Y-up
 
-        // Create a font object with your preferred family
-        QFont cityFont ("Arial", m_fontSize, QFont::Normal);
-        painter.setFont (cityFont);
-        
-        if (clipPos.w() != 0.0f)
-        {
+        // 3. Manual Projection to bypass 'project()' bugs
+        QVector4D clipPos = mvp * QVector4D (northPole, 1.0f);
+
+        if (clipPos.w() != 0.0f) {
+            // Convert to Normalized Device Coordinates (-1 to 1)
             float ndcX = clipPos.x() / clipPos.w();
             float ndcY = clipPos.y() / clipPos.w();
             float ndcZ = clipPos.z() / clipPos.w();
 
-            // 1. Frustum Check (Is it in view?)
-            // 2. Depth Check (Is it on the front side? ndcZ < 0.5 is a safe bet here)
-            if (ndcZ >= -1.0f && ndcZ <= 1.0f)
-            {
-                // Front-side check: Transform to View Space to check Z
-                if ((view * model).map (worldPos).z() > (view * model).map (QVector3D (0, 0, 0)).z())
-                {
-                    int x = (int)((ndcX + 1.0f) * 0.5f * width());
-                    int y = (int)((1.0f - ndcY) * 0.5f * height());
+            // Only draw if it's within the view frustum (Z is -1 to 1 in NDC)
+            if (ndcZ >= -1.0f && ndcZ <= 1.0f) {
+                // Convert NDC to Pixel Coordinates
+                int x = (int)((ndcX + 1.0f) * 0.5f * width());
+                int y = (int)((1.0f - ndcY) * 0.5f * height());
 
-//                    painter.setBrush (Qt::cyan);
-//                    painter.setPen (QPen (Qt::black, 1));
-
-                    painter.drawEllipse (QPointF (x, y), m_markerSize, m_markerSize);
-
-                    if (m_selectedCity)
-                    {
-                        QVector3D worldPos = latLonToXYZ (m_selectedCity->lat, m_selectedCity->lon, cityLabelHeight);
-                        QVector4D clipPos = mvp * QVector4D (worldPos, 1.0f);
-                        
-                        // Convert to pixel space
-                        int x = (int)((clipPos.x() / clipPos.w() + 1.0f) * 0.5f * width());
-                        int y = (int)((1.0f - clipPos.y() / clipPos.w()) * 0.5f * height());
-
-                        // Info Card Styling
-                        int cardW = 200;
-                        int cardH = 80;
-                        QRect cardRect (x + 20, y - 40, cardW, cardH);
-
-                        // Draw Background with Transparency
-                        painter.setBrush (QColor (0, 0, 0, 180)); // Semi-transparent black
-                        painter.setPen (QPen (Qt::cyan, 2));
-                        painter.drawRoundedRect (cardRect, 10, 10);
-
-                        // Draw Content
-                        painter.setPen (Qt::white);
-                        painter.setFont (QFont ("Arial", m_fontSize, QFont::Bold));
-                        painter.drawText (cardRect.adjusted (10, 10, -10, -10), Qt::AlignTop, m_selectedCity->name);
-                        
-                        painter.setFont (QFont ("Arial", m_fontSize));
-                        painter.drawText (cardRect.adjusted (10, 35, -10, -10), Qt::AlignTop, m_selectedCity->extraInfo);
-                    }
-                    else
-                    {
-                        painter.setPen (shadowPen);
-                        painter.drawText (x + 5, y + 5, city.name);
-
-                        painter.setPen (myPen);
-                        painter.drawText (x + 10, y, city.name);
-                    }
-                }
+                // Draw a giant marker to confirm it exists
+                painter.setBrush(Qt::green);
+                painter.setPen(QPen(Qt::white, 4));
+                painter.drawEllipse(QPoint(x, y), 20, 20);
+                
+                painter.setFont(QFont("Arial", 16, QFont::Bold));
+                painter.drawText(x + 25, y, "NP");
             }
         }
-    }
+    */
+        for (const auto& city : m_capitals)
+        {
+            QVector3D worldPos = latLonToXYZ (city.lat, city.lon, cityLabelHeight);
+            QVector4D clipPos = mvp * QVector4D (worldPos, 1.0f);
 
-//    painter.endNativePainting(); 
+            // Set up the Pen (for the outline and text)
+            QPen myPen (m_textColor);
+            myPen.setWidth (1); 
 
-    painter.end();
+            // Set up the Brush (for the fill of the circle)
+            QBrush myBrush (m_cityColor);
+            painter.setBrush (myBrush);
+
+            // Set up the shadow pen
+            QPen shadowPen (m_shadowColor);
+            shadowPen.setWidth (7);
+
+            // Create a font object with your preferred family
+            QFont cityFont ("Arial", m_fontSize, QFont::Normal);
+            painter.setFont (cityFont);
+            
+            if (clipPos.w() != 0.0f)
+            {
+                float ndcX = clipPos.x() / clipPos.w();
+                float ndcY = clipPos.y() / clipPos.w();
+                float ndcZ = clipPos.z() / clipPos.w();
+
+                // 1. Frustum Check (Is it in view?)
+                // 2. Depth Check (Is it on the front side? ndcZ < 0.5 is a safe bet here)
+                if (ndcZ >= -1.0f && ndcZ <= 1.0f)
+                {
+                    // Front-side check: Transform to View Space to check Z
+                    if ((view * model).map (worldPos).z() > (view * model).map (QVector3D (0, 0, 0)).z())
+                    {
+                        int x = (int)((ndcX + 1.0f) * 0.5f * width());
+                        int y = (int)((1.0f - ndcY) * 0.5f * height());
+
+    //                    painter.setBrush (Qt::cyan);
+    //                    painter.setPen (QPen (Qt::black, 1));
+
+                        painter.drawEllipse (QPointF (x, y), m_markerSize, m_markerSize);
+
+                        if (m_selectedCity)
+                        {
+                            QVector3D worldPos = latLonToXYZ (m_selectedCity->lat, m_selectedCity->lon, cityLabelHeight);
+                            QVector4D clipPos = mvp * QVector4D (worldPos, 1.0f);
+                            
+                            // Convert to pixel space
+                            int x = (int)((clipPos.x() / clipPos.w() + 1.0f) * 0.5f * width());
+                            int y = (int)((1.0f - clipPos.y() / clipPos.w()) * 0.5f * height());
+
+                            // Info Card Styling
+                            int cardW = 200;
+                            int cardH = 80;
+                            QRect cardRect (x + 20, y - 40, cardW, cardH);
+
+                            // Draw Background with Transparency
+                            painter.setBrush (QColor (0, 0, 0, 180)); // Semi-transparent black
+                            painter.setPen (QPen (Qt::cyan, 2));
+                            painter.drawRoundedRect (cardRect, 10, 10);
+
+                            // Draw Content
+                            painter.setPen (Qt::white);
+                            painter.setFont (QFont ("Arial", m_fontSize, QFont::Bold));
+                            painter.drawText (cardRect.adjusted (10, 10, -10, -10), Qt::AlignTop, m_selectedCity->name);
+                            
+                            painter.setFont (QFont ("Arial", m_fontSize));
+                            painter.drawText (cardRect.adjusted (10, 35, -10, -10), Qt::AlignTop, m_selectedCity->extraInfo);
+                        }
+                        else
+                        {
+                            painter.setPen (shadowPen);
+                            painter.drawText (x + 5, y + 5, city.name);
+
+                            painter.setPen (myPen);
+                            painter.drawText (x + 10, y, city.name);
+                        }
+                    }
+                } // if (ndcZ >= -1.0f && ndcZ <= 1.0f)
+            } // if (clipPos.w() != 0.0f)
+        } // for (const auto& city : m_capitals)
+
+    //    painter.endNativePainting(); 
+
+        painter.end();
+    } // if (m_showCities)
 
     glEnable (GL_DEPTH_TEST);
 
