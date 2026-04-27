@@ -1,7 +1,13 @@
 #pragma once
 
-#include "LegacyGLApp.hxx"
-
+#include <QtMath>
+#include <QOpenGLVertexArrayObject>
+#include <QOpenGLFunctions_4_3_Core>
+#include <QVector3D>
+#include <QString>
+#include <QDateTime>
+#include <ace/Thread_Mutex.h>
+#include <ace/Guard_T.h>
 
 // SimCore/BaseEntity.hxx
 namespace SimCore
@@ -11,7 +17,7 @@ namespace SimCore
         public:
             virtual ~BaseEntity() = default;
             // Every object must be able to update its own 3D position
-            virtual void updatePhysics(qint64 msecs) = 0;
+            virtual void updatePhysics (qint64 msecs, float liveOffset) = 0;
             virtual QVector3D getPosition() const = 0;
             virtual QString getLabel() const = 0;
     };

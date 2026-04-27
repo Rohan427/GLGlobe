@@ -1,20 +1,23 @@
 #pragma once
 
 #include "BaseEntity.hxx"
+#include "Utility.hxx"
+#include "Globe.hxx"
+#include "BaseEntity.hxx"
 #include <SGP4.h>
 #include <Tle.h>
 #include <memory>
 #include <mutex>
 
-namespace SimCore::Space
+namespace Space
 {
-    class Satellite : public BaseEntity
+    class Satellite : public SimCore::BaseEntity
     {
         public:
             Satellite (const QString& name, const std::string& tle1, const std::string& tle2);
 
             // From BaseEntity
-            void updatePhysics (qint64 msecs) override;
+            void updatePhysics (qint64 msecs, float liveOffset) override;
             QVector3D getPosition() const override;
             QString getLabel() const override
             {
@@ -25,7 +28,6 @@ namespace SimCore::Space
             QString m_name;
             std::unique_ptr<libsgp4::SGP4> m_propagator;
             QVector3D m_currentPos;
-            mutable std::mutex m_posMutex; // Protect position for ACE/GL threads
+            mutable ACE_Thread_Mutex m_posLock;
     };
 } // namespace SimCore::Space
-#endif

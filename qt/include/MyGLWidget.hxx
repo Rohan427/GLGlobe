@@ -30,7 +30,8 @@
 #include <memory>
 #include "Utility.hxx"
 #include "Globe.hxx"
-
+#include "EntityManager.hxx"
+#include "Satellite.hxx"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -76,6 +77,7 @@ namespace SimCore
             QVector3D m_issPos;
             QElapsedTimer m_satTimer;
             QVector3D m_lastIssPos;
+            EntityManager* m_entityManager = nullptr; 
 
             // Transform variables to track state (mouse)
             float m_zoom = 1.0f;
@@ -106,6 +108,16 @@ namespace SimCore
             // This constructor is required to use the widget in a layout
             explicit MyGLWidget (QWidget* parent = nullptr) : QOpenGLWidget (parent) 
             {
+            }
+
+            ~MyGLWidget() 
+            {
+                if (m_entityManager)
+                {
+                    m_entityManager->stop(); // Signal ACE threads to exit
+                    m_entityManager->wait(); // Wait for threads to finish
+                    delete m_entityManager;
+                }
             }
 
         protected:

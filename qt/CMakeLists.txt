@@ -73,6 +73,7 @@ set (SOURCES
     ${SOURCE_ROOT}/SimCore/Main.cxx
     ${SOURCE_ROOT}/SimCore/MainWindow.cxx
     ${SOURCE_ROOT}/SimCore/MyGLWidget.cxx
+    ${SOURCE_ROOT}/Space/Satellite.cxx
 )
 
 set (HEADERS
@@ -106,7 +107,10 @@ target_link_libraries (LegacyGLApp PRIVATE
     ${ACE_LIBRARY}
 )
 
-target_include_directories (LegacyGLApp PRIVATE ${HEADER_FILES})
+target_include_directories (LegacyGLApp PRIVATE
+                            ${HEADER_FILES}
+                            ${ACE_INCLUDE_DIR}
+)
 
 
 ######################## Copy shader files ###########################

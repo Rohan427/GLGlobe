@@ -1,7 +1,8 @@
 #pragma once
 
-//#include "LegacyGLApp.hxx"
-
+#include <QElapsedTimer>
+#include <QOpenGLShaderProgram>
+#include <QPainter>
 
 namespace Globe
 {

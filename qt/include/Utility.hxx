@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QtMath>
+#include <QVector3D>
+#include <QString>
 
 namespace SimCore
 {
