@@ -9,19 +9,38 @@ namespace SimCore
     void MyGLWidget::initializeGL() 
     {
         initCapitals ("/home/pgallen/Downloads/capitals.csv");
-        initSatellites();
 
-        // In initializeGL
+        // Initialize entity manager
         m_entityManager = new SimCore::EntityManager();
         m_entityManager->activate(); // Start ACE threads
 
+        // TODO: Remove hard coded satellite when we're ready for more objects and have data for them
         std::string l1 = R"(1 25544U 98067A   26116.51782528  .00002182  00000-0  10000-3 0  9993)";
         std::string l2 = R"(2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537)";
 
         auto* iss = new Space::Satellite ("ISS", l1, l2);
         m_entityManager->addEntity (iss);
 
+
+
         initializeOpenGLFunctions(); // Required in Qt to access gl* calls
+
+        // Initialize satellite VBO
+        glGenVertexArrays (1, &m_satVao);
+        glGenBuffers (1, &m_satVbo);
+
+        glBindVertexArray (m_satVao);
+        glBindBuffer (GL_ARRAY_BUFFER, m_satVbo);
+
+        // Pre-allocate space for, say, 10,000 satellites
+        glBufferData (GL_ARRAY_BUFFER, MAX_SATELLITES * sizeof (QVector3D), nullptr, GL_STREAM_DRAW);
+
+        glEnableVertexAttribArray (0);
+        glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, sizeof (QVector3D), (void*)0);
+
+        glBindVertexArray (0);
+
+
 
         // These two lines enable 3D depth testing
         glEnable (GL_DEPTH_TEST);
@@ -40,6 +59,7 @@ namespace SimCore
     //    registerShader ("Standard", "shaders/Earth.vert", "shaders/Earth.frag");
         registerShader ("NightLights", "shaders/Earth.vert", "shaders/Earth-night.frag");
         registerShader ("BumpLights", "shaders/Earth-Bump.vert", "shaders/Earth-Bump.frag");
+        registerShader ("Satellites", "shaders/Satellite.vert", "shaders/Satellite.frag");
 
         // Set the default
         m_program = Globe::m_shaders["BumpLights"];
@@ -79,6 +99,7 @@ namespace SimCore
         Globe::timer.start();
     }
 
+
     void MyGLWidget::paintGL() 
     {
         // Compute shader code
@@ -100,6 +121,9 @@ namespace SimCore
 
         glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glEnable (GL_DEPTH_TEST);
+        glEnable (GL_CULL_FACE);
+
+        setActiveShader ("BumpLights");
 
         // Projection (The 4K Lens)
         float aspect = (float)width() / (float)height();
@@ -176,6 +200,46 @@ namespace SimCore
         m_vao.release();
         m_program->release();
 
+        /******************** Draw satellites *******************/
+        // 1. Gather latest positions from ACE threads
+        if (setActiveShader ("Satellites"))
+        {
+            m_satPositions.clear();
+
+            for (auto* entity : m_entityManager->getEntities()) 
+            {
+                m_satPositions.push_back (entity->getPosition());
+            }
+
+            // 2. Stream to GPU using Orphaning
+            glBindBuffer (GL_ARRAY_BUFFER, m_satVbo);
+
+            // Orphan the buffer: tell the driver we don't care about old data
+            glBufferData (GL_ARRAY_BUFFER, MAX_SATELLITES * sizeof (QVector3D), nullptr, GL_STREAM_DRAW);
+
+            // Upload new data
+            glBufferSubData (GL_ARRAY_BUFFER, 0, m_satPositions.size() * sizeof (QVector3D), m_satPositions.data());
+
+            // 3. Draw all satellites in ONE call
+            m_program->bind();
+            m_program->setUniformValue ("mvp", projection * view * model);
+            m_program->setUniformValue ("satColor", QVector3D (1.0f, 0.0f, 1.0f)); // Magenta
+
+            glEnable (GL_PROGRAM_POINT_SIZE); // Enables gl_PointSize from shader
+            glEnable (GL_BLEND);
+//            glBlendFunc (GL_SRC_ALPHA, GL_ONE); // Additive blend makes them "glow"
+            
+            glBindVertexArray (m_satVao);
+
+            // Use GL_POINTS for massive performance on RDNA3
+            glDrawArrays (GL_POINTS, 0, m_satPositions.size());
+            glBindVertexArray (0);
+            glDisable (GL_BLEND);
+
+            m_program->release();
+        }
+
+
         // FPS Logic
         static int frames = 0;
         static QElapsedTimer fpsTimer;
@@ -201,15 +265,15 @@ namespace SimCore
         }
         
 
-            /********************** 2D Painter *********************/
-            glDisable (GL_DEPTH_TEST);
-            glDisable (GL_CULL_FACE);
-            QPainter painter (this);
+        /********************** 2D Painter *********************/
+        glDisable (GL_DEPTH_TEST);
+        glDisable (GL_CULL_FACE);
+        QPainter painter (this);
 
-        //    painter.beginNativePainting();
+    //    painter.beginNativePainting();
 
-            painter.setRenderHint (QPainter::Antialiasing);
-            QRect viewport (0, 0, width(), height());
+        painter.setRenderHint (QPainter::Antialiasing);
+        QRect viewport (0, 0, width(), height());
 
         /*************** City labels ***************/
         if (Globe::m_showCities)
@@ -332,37 +396,6 @@ namespace SimCore
             } // for (const auto& city : m_capitals)
         } // if (m_showCities)
 
-        // Satellites
-/*
-        if (!m_satTimer.isValid() || m_satTimer.elapsed() > 100)
-        {
-            qint64 currentMsecs = QDateTime::currentDateTimeUtc().toMSecsSinceEpoch();
-            updateSatellitePhysics (currentMsecs); // Update position for this frame
-            m_lastIssPos = m_issPos; // Store the stable position
-            m_satTimer.restart();
-        }
-
-        QVector4D clipPos = mvp * QVector4D (m_lastIssPos, 1.0f);
-*/
-        for (auto* entity : m_entityManager->getEntities())
-        {
-            QVector3D pos = entity->getPosition();
-            QVector4D clipPos = mvp * QVector4D (pos, 1.0f);
-
-            if (std::abs (clipPos.w()) > 0.001f)
-            { // Use a safer epsilon check
-                float ndcX = clipPos.x() / clipPos.w();
-                float ndcY = clipPos.y() / clipPos.w();
-
-                int x = (int)((ndcX + 1.0f) * 0.5f * width());
-                int y = (int)((1.0f - ndcY) * 0.5f * height());
-
-                painter.setBrush (Qt::magenta); // Bright magenta for visibility
-                painter.drawEllipse (QPoint (x, y), 6, 6);
-                painter.drawText (x + 10, y, "ISS");
-            }
-        }
-
     //    painter.endNativePainting(); 
 
         painter.end();
@@ -370,7 +403,8 @@ namespace SimCore
         glEnable (GL_DEPTH_TEST);
 
         updateStatus();
-    } // MyGLWidget::paintGL() 
+    } // END: MyGLWidget::paintGL() 
+
 
     void MyGLWidget::resizeGL (int w, int h)
     {
@@ -831,11 +865,14 @@ namespace SimCore
         if (Globe::m_shaders.contains (name))
         {
             m_program = Globe::m_shaders[name];
-            update(); // Trigger a repaint with the new pipeline
+//            update(); // Trigger a repaint with the new pipeline
         }
         else
         {
-            qDebug() << "Shader does not exist: " << name;
+            std::cout << "Shader does not exist: " << name.toStdString() << std::endl;
+
+            MainWindow::instance()->logMessage (QString ("ERROR: Shader does not exist: %1")
+                                                .arg (name.toStdString()));
             return false;
         }
         
@@ -853,11 +890,18 @@ namespace SimCore
                 prog->link())
         {
             Globe::m_shaders.insert (name, prog);
-            qDebug() << "Successfully registered shader:" << name;
+            std::cout << "Successfully registered shader: " << name.toStdString() << std::endl;
+
+            MainWindow::instance()->logMessage (QString ("Successfully registered shader: %1")
+                                                .arg (name.toStdString()));
         }
         else
         {
-            qDebug() << "Failed to link shader" << name << ":" << prog->log();
+            std::cout << "Failed to link shader: " << name.toStdString() <<", " << prog->log().toStdString() << std::endl;
+
+            MainWindow::instance()->logMessage (QString ("CRITICAL: Failed to link shader: %1, %2")
+                                                .arg (name.toStdString())
+                                                .arg (prog->log().toStdString()));
             result = false;
         }
 
@@ -941,84 +985,5 @@ namespace SimCore
             // ... add the rest here
         };
     */
-    }
-
-    void MyGLWidget::initSatellites()
-    {
-        // Use Raw String Literals R"(...)" to ensure no escape-character issues
-    std::string l1 = R"(1 25544U 98067A   26116.51782528  .00002182  00000-0  10000-3 0  9993)";
-    std::string l2 = R"(2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537)";
-        
-        try
-        {
-            // 2. Create the Tle object
-            libsgp4::Tle tle ("ISS", l1, l2);
-
-            // 3. Instantiate the SGP4 propagator into your unique_ptr
-            // This is where m_issPropagator finally stops being null
-            m_issPropagator = std::make_unique<libsgp4::SGP4> (tle);
-
-            MainWindow::instance()->logMessage ("ISS Propagator initialized successfully.");
-        }
-        catch (const std::exception& e)
-        {
-            MainWindow::instance()->logMessage (QString ("SGP4 Error: %1").arg (e.what()));
-        }
-    }
-
-    void MyGLWidget::updateSatellitePhysics (qint64 msecs)
-    {
-        if (!m_issPropagator)
-        {
-            MainWindow::instance()->logMessage ("ISS Propagator not initialized.");
-            return;
-        }
-
-        // Use the modern Qt 6 static method
-        QDateTime qtTime = QDateTime::fromMSecsSinceEpoch (msecs, Qt::UTC);
-            
-        // SGP4 DateTime uses (Year, Month, Day, Hour, Minute, Second)
-        libsgp4::DateTime dt (qtTime.date().year(),
-                              qtTime.date().month(),
-                              qtTime.date().day(), 
-                              qtTime.time().hour(),
-                              qtTime.time().minute(),
-                              qtTime.time().second()
-                             );
-
-    // libsgp4::DateTime dt (2024, 4, 25, 12, 0, 0); 
-
-        // 2. Propagate
-        libsgp4::Eci eci = m_issPropagator->FindPosition (dt);
-        
-        // CRITICAL: Eci coordinates are Inertial (they don't rotate with Earth).
-        // ToGeodetic() converts them to Lat/Lon/Alt FIXED to the rotating Earth.
-        libsgp4::CoordGeodetic geo = eci.ToGeodetic();
-
-        // LOG TO CONSOLE FOR DEBUG
-    /*    QString debugMsg = QString ("ISS - Lat: %1, Lon: %2, Alt: %3km | XYZ: %4, %5, %6")
-                                    .arg (qRadiansToDegrees (geo.latitude), 0, 'f', 2)
-                                    .arg (qRadiansToDegrees (geo.longitude), 0, 'f', 2)
-                                    .arg (geo.altitude, 0, 'f', 1)
-                                    .arg (m_issPos.x(), 0, 'f', 2)
-                                    .arg (m_issPos.y(), 0, 'f', 2)
-                                    .arg (m_issPos.z(), 0, 'f', 2);
-
-        MainWindow::instance()->logMessage (debugMsg);
-    */
-        // If FindPosition fails, geo coordinates will be 0,0,0 (Center of Earth).
-    //    if (std::isnan (geo.latitude) || (geo.latitude == 0 && geo.longitude == 0))
-    //    {
-    //        // Log error to your new console
-    //        MainWindow::instance()->logMessage ("SGP4 Propagation Failed: Check TLE strings.");
-    //        return;
-    //    }
-
-        float altMultiplier = (6371.0f + (float)geo.altitude) / 6371.0f;
-        m_issPos = Utility::latLonToXYZ (Globe::m_liveOffset,
-                                         qRadiansToDegrees (geo.latitude), 
-                                         qRadiansToDegrees (geo.longitude), 
-                                         Globe::globeRadius * altMultiplier
-                                        );
     }
 }

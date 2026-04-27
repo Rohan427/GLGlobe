@@ -19,10 +19,13 @@ namespace Space
             // From BaseEntity
             void updatePhysics (qint64 msecs, float liveOffset) override;
             QVector3D getPosition() const override;
+
             QString getLabel() const override
             {
                 return m_name;
             }
+
+            void initSatellites();
 
         private:
             QString m_name;

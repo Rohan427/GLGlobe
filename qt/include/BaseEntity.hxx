@@ -12,6 +12,8 @@
 // SimCore/BaseEntity.hxx
 namespace SimCore
 {
+    static const quint64 MAX_SATELLITES=50000;
+
     class BaseEntity
     {
         public:

@@ -1,7 +1,5 @@
 #pragma once
 
-//#include "LegacyGLApp.hxx"
-
 // SimCore/EntityManager.hxx
 #include "BaseEntity.hxx"
 #include <ace/Task.h>

@@ -97,7 +97,9 @@ namespace SimCore
             float sensitivity = 5.0f; // Adjust to feel
             float rotSensitivity = 0.2f;
 
-            
+            GLuint m_satVao;
+            GLuint m_satVbo;
+            std::vector<QVector3D> m_satPositions; // CPU staging buffer
 
             /*********************** Functions *******************/
 
@@ -123,8 +125,6 @@ namespace SimCore
         protected:
             // TLE
             void initSatellites();
-            void updateSatellitePhysics (qint64 msecs);
-
 
             void initializeGL() override;
             void paintGL() override;
