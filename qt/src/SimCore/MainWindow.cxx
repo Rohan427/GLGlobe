@@ -1,5 +1,8 @@
 #include "MainWindow.hxx"
 
+
+using namespace SimCore;
+
 MainWindow* MainWindow::s_instance = nullptr;
 
 MainWindow::MainWindow (QWidget *parent) : QMainWindow(parent)

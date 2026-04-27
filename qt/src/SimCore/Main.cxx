@@ -3,6 +3,8 @@
 #include "MyGLWidget.hxx"
 #include "MainWindow.hxx"
 
+using namespace SimCore;
+
 int main (int argc, char *argv[])
 {
     // 1. Force Qt to ONLY look in the standard RHEL system plugin directory

@@ -1,6 +1,8 @@
 #include "MyGLWidget.hxx"
 #include "MainWindow.hxx"
 
+using namespace SimCore;
+
 void MyGLWidget::initializeGL() 
 {
     initCapitals ("/home/pgallen/Downloads/capitals.csv");
@@ -27,14 +29,14 @@ void MyGLWidget::initializeGL()
     registerShader ("BumpLights", "shaders/Earth-Bump.vert", "shaders/Earth-Bump.frag");
 
     // Set the default
-    m_program = m_shaders["BumpLights"];
+    m_program = Globe::m_shaders["BumpLights"];
 
     if (!m_program->link())
     {
         qDebug() << "Shader Linker Error:" << m_program->log();
     }
 
-    generateSphere (globeRadius, globeSectors, globeStacks);
+    generateSphere (Globe::globeRadius, Globe::globeSectors, Globe::globeStacks);
 
     m_vbo.create();
     m_vbo.bind();
@@ -45,23 +47,23 @@ void MyGLWidget::initializeGL()
     qDebug() << "Load texture";
     //textureID = loadTexture (mapSizes.huge, "textures/1_earth_16k.jpg");
     
-    if (!loadTextureFiles (mapSizes.huge))
+    if (!loadTextureFiles (Globe::mapSizes.huge))
     {
         qCritical() << "FATAL ERROR: Failed to initialize textures";
         QCoreApplication::exit (1); // Exit app
         return;
     }
 
-    dayTextureID =   textureMap["earthncice16k"];
-    nightTextureID = textureMap["earthnight16k"];
-    bumpTextureID =  textureMap["earthbump16k"];
+    dayTextureID =   Globe::textureMap["earthncice16k"];
+    nightTextureID = Globe::textureMap["earthnight16k"];
+    bumpTextureID =  Globe::textureMap["earthbump16k"];
     //textureID = textureMap["earth16k"];
 
     std::cout << "Texture ID is " << textureID << std::endl;
 
     initializeGlobePosition();
 
-    timer.start();
+    Globe::timer.start();
 }
 
 void MyGLWidget::paintGL() 
@@ -101,7 +103,7 @@ void MyGLWidget::paintGL()
     QMatrix4x4 model;
 
     // Axial Tilt: Use a NEGATIVE rotation to tilt the North Pole TOWARD the sun in April
-    model.rotate (m_liveTilt, 1.0f, 0.0f, 0.0f); 
+    model.rotate (Globe::m_liveTilt, 1.0f, 0.0f, 0.0f); 
 
     // Real-Time Spin:
     // We use UTC time to avoid local daylight savings confusion
@@ -110,7 +112,7 @@ void MyGLWidget::paintGL()
     
     // Offset calculation: 
     // -90 aligns 0-longitude with 'noon' at 12:00 UTC
-    float spinAngle = (dayFraction * 360.0f) + m_liveOffset; 
+    float spinAngle = (dayFraction * 360.0f) + Globe::m_liveOffset;
     
     model.rotate (spinAngle, 0.0f, 1.0f, 0.0f);
 
@@ -118,13 +120,13 @@ void MyGLWidget::paintGL()
     QMatrix4x4 modelView = view * model; // Capture this for label culling
 
     // Save matrices for reference
-    modelMatrix = model;
-    viewMatrix = view;
-    projectMatrix = projection;
+    Globe::modelMatrix = model;
+    Globe::viewMatrix = view;
+    Globe::projectMatrix = projection;
    
     // 4. Update Uniforms
     m_program->bind();
-    m_program->setUniformValue ("ambientIntensity", (float)m_ambientLevel);
+    m_program->setUniformValue ("ambientIntensity", (float)Globe::m_ambientLevel);
     m_program->setUniformValue ("modelMatrix", model);
     m_program->setUniformValue ("sunDirection", QVector3D (0, 0, 1));
     m_program->setUniformValue ("mvp", mvp);
@@ -197,7 +199,7 @@ void MyGLWidget::paintGL()
         QRect viewport (0, 0, width(), height());
 
     /*************** City labels ***************/
-    if (m_showCities)
+    if (Globe::m_showCities)
     {
 
         // Paint test (a large point on the North Pole, always visible
@@ -230,25 +232,25 @@ void MyGLWidget::paintGL()
             }
         }
     */
-        for (const auto& city : m_capitals)
+        for (const auto& city : Globe::m_capitals)
         {
-            QVector3D worldPos = latLonToXYZ (city.lat, city.lon, cityLabelHeight);
+            QVector3D worldPos = Utility::latLonToXYZ (Globe::m_liveOffset, city.lat, city.lon, Globe::cityLabelHeight);
             QVector4D clipPos = mvp * QVector4D (worldPos, 1.0f);
 
             // Set up the Pen (for the outline and text)
-            QPen myPen (m_textColor);
+            QPen myPen (Globe::m_textColor);
             myPen.setWidth (1); 
 
             // Set up the Brush (for the fill of the circle)
-            QBrush myBrush (m_cityColor);
+            QBrush myBrush (Globe::m_cityColor);
             painter.setBrush (myBrush);
 
             // Set up the shadow pen
-            QPen shadowPen (m_shadowColor);
+            QPen shadowPen (Globe::m_shadowColor);
             shadowPen.setWidth (7);
 
             // Create a font object with your preferred family
-            QFont cityFont ("Arial", m_fontSize, QFont::Normal);
+            QFont cityFont ("Arial", Globe::m_fontSize, QFont::Normal);
             painter.setFont (cityFont);
             
             if (clipPos.w() != 0.0f)
@@ -270,11 +272,15 @@ void MyGLWidget::paintGL()
     //                    painter.setBrush (Qt::cyan);
     //                    painter.setPen (QPen (Qt::black, 1));
 
-                        painter.drawEllipse (QPointF (x, y), m_markerSize, m_markerSize);
+                        painter.drawEllipse (QPointF (x, y), Globe::m_markerSize, Globe::m_markerSize);
 
-                        if (m_selectedCity)
+                        if (Globe::m_selectedCity)
                         {
-                            QVector3D worldPos = latLonToXYZ (m_selectedCity->lat, m_selectedCity->lon, cityLabelHeight);
+                            QVector3D worldPos = Utility::latLonToXYZ (Globe::m_liveOffset,
+                                                                       Globe::m_selectedCity->lat,
+                                                                       Globe::m_selectedCity->lon,
+                                                                       Globe::cityLabelHeight
+                                                                      );
                             QVector4D clipPos = mvp * QVector4D (worldPos, 1.0f);
                             
                             // Convert to pixel space
@@ -293,11 +299,11 @@ void MyGLWidget::paintGL()
 
                             // Draw Content
                             painter.setPen (Qt::white);
-                            painter.setFont (QFont ("Arial", m_fontSize, QFont::Bold));
-                            painter.drawText (cardRect.adjusted (10, 10, -10, -10), Qt::AlignTop, m_selectedCity->name);
+                            painter.setFont (QFont ("Arial", Globe::m_fontSize, QFont::Bold));
+                            painter.drawText (cardRect.adjusted (10, 10, -10, -10), Qt::AlignTop, Globe::m_selectedCity->name);
                             
-                            painter.setFont (QFont ("Arial", m_fontSize));
-                            painter.drawText (cardRect.adjusted (10, 35, -10, -10), Qt::AlignTop, m_selectedCity->extraInfo);
+                            painter.setFont (QFont ("Arial", Globe::m_fontSize));
+                            painter.drawText (cardRect.adjusted (10, 35, -10, -10), Qt::AlignTop, Globe::m_selectedCity->extraInfo);
                         }
                         else
                         {
@@ -321,7 +327,6 @@ void MyGLWidget::paintGL()
         m_lastIssPos = m_issPos; // Store the stable position
         m_satTimer.restart();
     }
-    
 
     QVector4D clipPos = mvp * QVector4D (m_lastIssPos, 1.0f);
 
@@ -424,14 +429,14 @@ void MyGLWidget::mousePressEvent (QMouseEvent *event)
     if (event->button() & Qt::LeftButton)
     {
         // --- Picking Logic ---
-        QMatrix4x4 mvp = projectMatrix * viewMatrix * modelMatrix;
-        QMatrix4x4 modelView = viewMatrix * modelMatrix;
+        QMatrix4x4 mvp = Globe::projectMatrix * Globe::viewMatrix * Globe::modelMatrix;
+        QMatrix4x4 modelView = Globe::viewMatrix * Globe::modelMatrix;
         float width = (float)this->width();
         float height = (float)this->height();
 
-        for (const auto& city : m_capitals)
+        for (const auto& city : Globe::m_capitals)
         {
-            QVector3D worldPos = latLonToXYZ (city.lat, city.lon, cityLabelHeight);
+            QVector3D worldPos = Utility::latLonToXYZ (Globe::m_liveOffset, city.lat, city.lon, Globe::cityLabelHeight);
             
             // 1. Only check cities on the front side
             if (modelView.map (worldPos).z() > modelView.map (QVector3D (0, 0, 0)).z())
@@ -455,13 +460,13 @@ void MyGLWidget::mousePressEvent (QMouseEvent *event)
 
                     if (dist < 10.0f)
                     {
-                        m_selectedCity = &city; // Store reference
+                        Globe::m_selectedCity = &city; // Store reference
                         MainWindow::instance()->logMessage ("Selected: " + city.name);
                         update(); // Force redraw for the info card
                         return;
                     }
 
-                    m_selectedCity = nullptr; // Clear if no city clicked
+                    Globe::m_selectedCity = nullptr; // Clear if no city clicked
                 }
             }
         }
@@ -683,7 +688,7 @@ QVector3D MyGLWidget::calculateSunDirection()
     // 1. Get Day of Year for Seasonal Tilt (North/South light balance)
     int dayOfYear = QDate::currentDate().dayOfYear();
     // Earth is tilted 23.44 degrees. This formula finds the sun's relative latitude.
-    float solarDeclination = m_liveTilt * sinf ((2.0f * M_PI / 365.0f) * (dayOfYear - 81));
+    float solarDeclination = Globe::m_liveTilt * sinf ((2.0f * M_PI / 365.0f) * (dayOfYear - 81));
 
     // 2. Calculate the Sun Vector
     QMatrix4x4 sunTransform;
@@ -694,7 +699,7 @@ QVector3D MyGLWidget::calculateSunDirection()
     // Time of Day: The Sun's longitude (0 longitude is noon)
     float msecs = QTime::currentTime().msecsSinceStartOfDay();
     float dayFraction = msecs / 86400000.0f;
-    float solarLongitude = (dayFraction * 360.0f) + m_liveOffset;// + 180.0f;
+    float solarLongitude = (dayFraction * 360.0f) + Globe::m_liveOffset;// + 180.0f;
     
     sunTransform.rotate (solarLongitude, 0.0f, 1.0f, 0.0f);
 
@@ -708,9 +713,9 @@ void MyGLWidget::initializeGlobePosition()
 {
     m_zoom = 1.0f;
     m_offset = QVector2D (0.0f, 0.0f);
-    m_liveOffset = -90.0f;
-    m_liveTilt = 23.5f;
-    m_ambientLevel = 0.15f;
+    Globe::m_liveOffset = -90.0f;
+    Globe::m_liveTilt = 23.5f;
+    Globe::m_ambientLevel = 0.15f;
 
     MainWindow::instance()->logMessage ("Globe reset to default position");
 }
@@ -769,13 +774,13 @@ GLuint MyGLWidget::loadTexture (std::array<int, 2>& mapSize, const QString& file
 
 bool MyGLWidget::loadTextureFiles (std::array<int, 2>& mapSize)
 {
-    for (const auto& pair : TextureFiles)
+    for (const auto& pair : Globe::TextureFiles)
     {
         GLuint textureID = loadTexture (mapSize, pair.second);
         
         if (textureID > 0)
         {
-            textureMap.insert ({pair.first, textureID});
+            Globe::textureMap.insert ({pair.first, textureID});
         }
         else
         {
@@ -803,9 +808,9 @@ bool MyGLWidget::initShader (QOpenGLShaderProgram* program, const QString& vPath
 
 bool MyGLWidget::setActiveShader (const QString& name)
 {
-    if (m_shaders.contains (name))
+    if (Globe::m_shaders.contains (name))
     {
-        m_program = m_shaders[name];
+        m_program = Globe::m_shaders[name];
         update(); // Trigger a repaint with the new pipeline
     }
     else
@@ -827,7 +832,7 @@ bool MyGLWidget::registerShader (const QString& name, const QString& vFile, cons
             prog->addShaderFromSourceFile (QOpenGLShader::Fragment, fFile) &&
             prog->link())
     {
-        m_shaders.insert (name, prog);
+        Globe::m_shaders.insert (name, prog);
         qDebug() << "Successfully registered shader:" << name;
     }
     else
@@ -846,7 +851,7 @@ void MyGLWidget::initCapitals (QString filename)
     MainWindow::instance()->logMessage (QString ("Opening City file: %1")
                                         .arg (filename));
 
-    m_capitals.clear();
+    Globe::m_capitals.clear();
 
     // Verify file existence and readability before instantiating QFile
     QFileInfo checkFile (filename);
@@ -867,9 +872,11 @@ void MyGLWidget::initCapitals (QString filename)
     if (!file.open (QIODevice::ReadOnly | QIODevice::Text))
     {
         std::cout << "Failed to open file" << std::endl;
+
         MainWindow::instance()->logMessage (QString ("ERROR: Could not open %1. Reason: %2")
                                             .arg (filename)
-                                            .arg (file.errorString()));
+                                            .arg (file.errorString())
+                                           );
         return;
     }
 
@@ -887,20 +894,20 @@ void MyGLWidget::initCapitals (QString filename)
         
         if (fields.size() >= 6)
         {
-            City city;
+            Globe::City city;
             // Adjust indices based on your CSV structure (Name, Lat, Lon, Population, etc.)
             city.name = fields[0].trimmed().remove ('"');
             city.lat = fields[3].toFloat();
             city.lon = fields[4].toFloat();
             city.extraInfo = "Population: " + fields[5].trimmed();
 
-            m_capitals.push_back (city);
+            Globe::m_capitals.push_back (city);
         }
     }
 
     file.close();
 
-    MainWindow::instance()->logMessage (QString ("Loaded %1 cities.").arg (m_capitals.size()));
+    MainWindow::instance()->logMessage (QString ("Loaded %1 cities.").arg (Globe::m_capitals.size()));
 /*
     m_capitals =
     {
@@ -914,21 +921,6 @@ void MyGLWidget::initCapitals (QString filename)
         // ... add the rest here
     };
 */
-}
-
-QVector3D MyGLWidget::latLonToXYZ (float lat, float lon, float radius)
-{
-    float latRad = qDegreesToRadians (lat);
-    float lonRad = qDegreesToRadians (lon + m_liveOffset);
-
-    // Matches the North Pole logic: 
-    // At lat=90, sin(90)=1, so y = radius. 
-    // At lat=0 (equator), sin(0)=0, so y = 0.
-    float x = radius * cos (latRad) * sin (lonRad);
-    float y = radius * sin (latRad);
-    float z = radius * cos (latRad) * cos (lonRad);
-
-    return QVector3D (x, y, z);
 }
 
 void MyGLWidget::initSatellites()
@@ -1003,7 +995,9 @@ void MyGLWidget::updateSatellitePhysics (qint64 msecs)
 //    }
 
     float altMultiplier = (6371.0f + (float)geo.altitude) / 6371.0f;
-    m_issPos = latLonToXYZ (qRadiansToDegrees (geo.latitude), 
-                            qRadiansToDegrees (geo.longitude), 
-                            globeRadius * altMultiplier);
+    m_issPos = Utility::latLonToXYZ (Globe::m_liveOffset,
+                                     qRadiansToDegrees (geo.latitude), 
+                                     qRadiansToDegrees (geo.longitude), 
+                                     Globe::globeRadius * altMultiplier
+                                    );
 }
