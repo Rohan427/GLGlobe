@@ -1,13 +1,18 @@
 #pragma once
 
+#include <iostream>
+#include <cstdlib>
 #include <QtMath>
 #include <QOpenGLVertexArrayObject>
 #include <QOpenGLFunctions_4_3_Core>
 #include <QVector3D>
 #include <QString>
 #include <QDateTime>
+#include <QThread>
 #include <ace/Thread_Mutex.h>
 #include <ace/Guard_T.h>
+#include "Globe.hxx"
+//#include "MainWindow.hxx"
 
 // SimCore/BaseEntity.hxx
 namespace SimCore

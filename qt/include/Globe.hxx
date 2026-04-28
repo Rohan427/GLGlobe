@@ -23,6 +23,8 @@ namespace Globe
             inline static const float DEFAULT_ZOOM = 1.0F;
             inline static const QVector2D DEFAULT_OFFSET = QVector2D (0.0f, 0.0f);
             inline static const float LABEL_HEIGHT_OFFSET = 0.0001f;
+            inline static const int THREAD_SLEEP_TIME = 50000;  // 50ms tick
+            inline static const int MAX_THREADS = 32;
 
             // Shared matrix variables
             inline QMatrix4x4 modelMatrix;

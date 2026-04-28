@@ -74,6 +74,7 @@ set (SOURCES
     ${SOURCE_ROOT}/SimCore/MainWindow.cxx
     ${SOURCE_ROOT}/SimCore/MyGLWidget.cxx
     ${SOURCE_ROOT}/Space/Satellite.cxx
+    ${SOURCE_ROOT}/SimCore/EntityManager.cxx
 )
 
 set (HEADERS

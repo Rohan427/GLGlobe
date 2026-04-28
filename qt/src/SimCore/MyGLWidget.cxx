@@ -9,18 +9,20 @@ namespace SimCore
         initCapitals ("/home/pgallen/Downloads/capitals.csv");
 
         // Initialize entity manager
-
         m_entityManager = new SimCore::EntityManager();
-        m_entityManager->activate(); // Start ACE threads
+
+        int numThreads = std::thread::hardware_concurrency(); 
+        if (numThreads == 0) numThreads = 16; // Fallback
 
         // TODO: Remove hard coded satellite when we're ready for more objects and have data for them
-        std::string l1 = R"(1 25544U 98067A   26116.51782528  .00002182  00000-0  10000-3 0  9993)";
-        std::string l2 = R"(2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537)";
-
-        auto* iss = new Space::Satellite ("ISS", l1, l2);
+        // Re-add the ISS as a Space Entity
+        std::string l1 = "1 25544U 98067A   24116.51782528  .00002182  00000-0 -11606-4 0  2927";
+        std::string l2 = "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537";
+        
+        auto* iss = new Space::Satellite ("ISS (ZARYA)", l1, l2);
         m_entityManager->addEntity (iss);
 
-
+        MainWindow::instance()->logMessage ("ISS re-initialized in Space package.");
 
         initializeOpenGLFunctions(); // Required in Qt to access gl* calls
 
@@ -97,6 +99,10 @@ namespace SimCore
         initializeGlobePosition();
 
         Globe::timer.start();
+        
+        // Spawn the thread pool
+        //m_entityManager->activate (THR_NEW_LWP | THR_JOINABLE | THR_INHERIT_SCHED, numThreads);
+        m_entityManager->activate (THR_NEW_LWP | THR_JOINABLE, numThreads);
     }
 
 
@@ -121,6 +127,7 @@ namespace SimCore
 
         glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glEnable (GL_DEPTH_TEST);
+        glDepthFunc (GL_LESS);
         glEnable (GL_CULL_FACE);
 
         setActiveShader ("BumpLights");
@@ -198,6 +205,7 @@ namespace SimCore
         m_program->setAttributeBuffer (2, GL_FLOAT, 5 * sizeof (float), 3, stride); // normal
 
         glDrawArrays (GL_TRIANGLES, 0, m_sphereVertices.size() / 8);
+        glBindVertexArray (0);
 
         m_vao.release();
         m_program->release();
@@ -309,7 +317,7 @@ namespace SimCore
                     painter.drawText(x + 25, y, "NP");
                 }
             }
-            /***************** END TEST **********************/
+            ***************** END TEST **********************/
 
 
             for (const auto& city : Globe::m_capitals)

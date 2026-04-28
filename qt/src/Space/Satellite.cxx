@@ -13,16 +13,22 @@ namespace Space
 
     void Satellite::updatePhysics (qint64 msecs, float liveOffset)
     {
-        if (!m_propagator) return;
+        if (!m_propagator)
+        {
+            std::cout << "No propagator" << std::endl;
+
+            return;
+        }
 
         // Convert msecs to SGP4 DateTime
         QDateTime qtTime = QDateTime::fromMSecsSinceEpoch (msecs, Qt::UTC);
+
         libsgp4::DateTime dt (qtTime.date().year(), qtTime.date().month(), qtTime.date().day(),
                               qtTime.time().hour(), qtTime.time().minute(), qtTime.time().second());
 
         try
         {
-            libsgp4::Eci eci = m_propagator->FindPosition(dt);
+            libsgp4::Eci eci = m_propagator->FindPosition (dt);
             libsgp4::CoordGeodetic geo = eci.ToGeodetic();
 
             float altMultiplier = (6371.0f + (float)geo.altitude) / 6371.0f;
@@ -34,11 +40,13 @@ namespace Space
         catch (...)
         {
 //            SimCore::MainWindow::instance()->logMessage (QString ("SGP4 Error: %1").arg (e.what()));
+            std::cout << "TLE Exception: " << std::endl;
         }
     }
 
     QVector3D Satellite::getPosition() const
     {
+//        std::cout << "Satellite: x, y, z: " << m_currentPos.x() << ", " << m_currentPos.y() << ", " << m_currentPos.z() << std::endl; 
         ACE_GUARD_RETURN (ACE_Thread_Mutex, ace_mon, m_posLock, QVector3D());
         return m_currentPos;
     }
