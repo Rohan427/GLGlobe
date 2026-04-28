@@ -4,14 +4,12 @@
 
 namespace SimCore
 {
-    //EntityManager m_entityManager;
-
     void MyGLWidget::initializeGL() 
     {
         initCapitals ("/home/pgallen/Downloads/capitals.csv");
 
         // Initialize entity manager
-/*
+
         m_entityManager = new SimCore::EntityManager();
         m_entityManager->activate(); // Start ACE threads
 
@@ -22,10 +20,10 @@ namespace SimCore
         auto* iss = new Space::Satellite ("ISS", l1, l2);
         m_entityManager->addEntity (iss);
 
-*/
+
 
         initializeOpenGLFunctions(); // Required in Qt to access gl* calls
-/*
+
         // Initialize satellite VBO
         glGenVertexArrays (1, &m_satVao);
         glGenBuffers (1, &m_satVbo);
@@ -41,11 +39,12 @@ namespace SimCore
 
         glBindVertexArray (0);
 
-*/
+
 
         // These two lines enable 3D depth testing
         glEnable (GL_DEPTH_TEST);
         glDepthFunc (GL_LESS);
+        glFrontFace (GL_CW);
         
         // Enable MSAA
         glEnable (GL_MULTISAMPLE);
@@ -122,7 +121,7 @@ namespace SimCore
 
         glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glEnable (GL_DEPTH_TEST);
-//        glEnable (GL_CULL_FACE);
+        glEnable (GL_CULL_FACE);
 
         setActiveShader ("BumpLights");
 
@@ -203,7 +202,7 @@ namespace SimCore
         m_vao.release();
         m_program->release();
 
-        /******************** Draw satellites *******************
+        /******************** Draw satellites *******************/
         // 1. Gather latest positions from ACE threads
         if (setActiveShader ("Satellites"))
         {
@@ -241,8 +240,7 @@ namespace SimCore
 
             m_program->release();
         }
-
-*/
+        /*********************** END SATILLITES ********************8*/
         // FPS Logic
         static int frames = 0;
         static QElapsedTimer fpsTimer;
@@ -282,7 +280,7 @@ namespace SimCore
         if (Globe::m_showCities)
         {
 
-            // Paint test (a large point on the North Pole, always visible
+            /** Paint test (a large point on the North Pole, always visible **
         
             // 2. Use the exact matrices from your globe draw
             QVector3D northPole (0.0f, 1.51f, 0.0f); // North Pole is Y-up
@@ -404,8 +402,6 @@ namespace SimCore
         painter.endNativePainting(); 
 
         painter.end();
-
-//        glEnable (GL_DEPTH_TEST);
 
         updateStatus();
     } // END: MyGLWidget::paintGL() 
