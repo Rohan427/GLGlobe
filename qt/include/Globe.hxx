@@ -9,28 +9,47 @@ namespace Globe
     //class Globe
     //{
     //    public:
+            // Initial settings constants
+            inline static const float DEFAULT_LIVEOFFSET = -90.0f;
+            inline static const float DEFAULT_TILT = 23.5f;
+            inline static const QVector2D DEFAULT_ROTATION = QVector2D (0.0f, 0.0f); // x = pitch, y = yaw
+            inline static const float DEFAULT_AMBIENT = 0.15f;
+            inline static const float DEFAULT_RADIUS = 1.5f;
+            inline static const int DEFAULT_SECTORS = 64;
+            inline static const int DEFAULT_STACKS = 64;
+            inline static const float DEFAULT_PERSPECTIVE = 45.0f;
+            inline static const int DEFAULT_FONT_SIZE = 16;
+            inline static const float DEFAULT_MARKER_SIZE = 5.0f;
+            inline static const float DEFAULT_ZOOM = 1.0F;
+            inline static const QVector2D DEFAULT_OFFSET = QVector2D (0.0f, 0.0f);
+            inline static const float LABEL_HEIGHT_OFFSET = 0.0001f;
+
             // Shared matrix variables
             inline QMatrix4x4 modelMatrix;
             inline QMatrix4x4 viewMatrix;
             inline QMatrix4x4 projectMatrix;
+            inline float g_perspective = DEFAULT_PERSPECTIVE;
 
             // Shader program for compute tasks
             inline QOpenGLShaderProgram* m_computeProgram;
-            inline QElapsedTimer timer;
+            inline QElapsedTimer timer;            
 
-            // Initial globe settings
-            inline float m_liveOffset = -90.0f;
-            inline float m_liveTilt = 23.5f;
-            inline float m_ambientLevel = 0.15f;
+            // globe settings (with defaults from above)
+            inline float m_liveOffset = DEFAULT_LIVEOFFSET;
+            inline float m_liveTilt = DEFAULT_TILT;
+            inline QVector2D m_rotation = DEFAULT_ROTATION; // x = pitch, y = yaw
+            inline float m_zoom = DEFAULT_ZOOM;
+            inline QVector2D m_offset = DEFAULT_OFFSET;   // for dragging
+            inline float m_ambientLevel = DEFAULT_AMBIENT;
 
              // Radius 1.5, 64 sectors/stacks
-            inline const float globeRadius = 1.5f;
-            inline const int globeSectors = 64;
-            inline const int globeStacks = 64;
+            inline const float globeRadius = DEFAULT_RADIUS;
+            inline const int globeSectors = DEFAULT_SECTORS;
+            inline const int globeStacks = DEFAULT_STACKS;
 
             // Height of labels above the globe. Put labels above globe, but not too far or they will "slide" due
             // to perspective and zoom changes
-            inline float cityLabelHeight = globeRadius + 0.0001f;
+            inline float cityLabelHeight = globeRadius + LABEL_HEIGHT_OFFSET;
 
             struct texSizes
             {
@@ -67,8 +86,8 @@ namespace Globe
             inline QColor m_cityColor = Qt::cyan;
             inline QColor m_textColor = Qt::white;
             inline QColor m_shadowColor = Qt::black;
-            inline float m_markerSize = 5.0f;
-            inline int m_fontSize = 16; // Default size
+            inline float m_markerSize = DEFAULT_MARKER_SIZE;
+            inline int m_fontSize = DEFAULT_FONT_SIZE; // Default size
 
             // City handling
             struct City

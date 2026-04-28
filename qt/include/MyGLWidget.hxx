@@ -39,7 +39,7 @@
 
 using namespace libsgp4;
 
-static const float ZOOM_CLAMP = 0.13f;
+static const float ZOOM_CLAMP = 0.15f;
 
 enum TextureIDs
 {
@@ -80,10 +80,7 @@ namespace SimCore
             EntityManager* m_entityManager = nullptr; 
 
             // Transform variables to track state (mouse)
-            float m_zoom = 1.0f;
-            QVector2D m_rotation; // x = pitch, y = yaw
             QPoint m_lastMousePos;
-            QVector2D m_offset;   // for dragging
 
             QString m_currentStatusString; // To store the "Zoom/Rot/Pos" text
 
@@ -229,11 +226,11 @@ namespace SimCore
                                                      "Tilt: %6\n"
                                                      "Spin: %7\n"
                                                     )
-                                                     .arg (m_zoom, 8, 'f', 2, QChar (' '))// 8 chars total width
-                                                     .arg (m_rotation.x(), 8, 'f', 1, QChar (' '))
-                                                     .arg (m_rotation.y(), 8, 'f', 1, QChar (' '))
-                                                     .arg (m_offset.x(), 8, 'f', 2, QChar (' '))
-                                                     .arg (m_offset.y(), 8, 'f', 2, QChar (' '))
+                                                     .arg (Globe::m_zoom, 8, 'f', 2, QChar (' '))// 8 chars total width
+                                                     .arg (Globe::m_rotation.x(), 8, 'f', 1, QChar (' '))
+                                                     .arg (Globe::m_rotation.y(), 8, 'f', 1, QChar (' '))
+                                                     .arg (Globe::m_offset.x(), 8, 'f', 2, QChar (' '))
+                                                     .arg (Globe::m_offset.y(), 8, 'f', 2, QChar (' '))
                                                      .arg (Globe::m_liveTilt, 6, 'f', 2, QChar (' '))
                                                      .arg (Globe::m_liveOffset, 6, 'f', 2, QChar (' '));
                     update();

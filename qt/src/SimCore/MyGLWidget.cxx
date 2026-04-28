@@ -11,6 +11,7 @@ namespace SimCore
         initCapitals ("/home/pgallen/Downloads/capitals.csv");
 
         // Initialize entity manager
+/*
         m_entityManager = new SimCore::EntityManager();
         m_entityManager->activate(); // Start ACE threads
 
@@ -21,10 +22,10 @@ namespace SimCore
         auto* iss = new Space::Satellite ("ISS", l1, l2);
         m_entityManager->addEntity (iss);
 
-
+*/
 
         initializeOpenGLFunctions(); // Required in Qt to access gl* calls
-
+/*
         // Initialize satellite VBO
         glGenVertexArrays (1, &m_satVao);
         glGenBuffers (1, &m_satVbo);
@@ -40,14 +41,14 @@ namespace SimCore
 
         glBindVertexArray (0);
 
-
+*/
 
         // These two lines enable 3D depth testing
         glEnable (GL_DEPTH_TEST);
+        glDepthFunc (GL_LESS);
         
         // Enable MSAA
         glEnable (GL_MULTISAMPLE);
-        glDepthFunc (GL_LESS);
 
         // If black screen appears after moving to 4.3, add this to initializeGL
         m_vao.create();
@@ -113,7 +114,7 @@ namespace SimCore
     //    glDispatchCompute (512 / 16, 512 / 16, 1);
         
         // Ensure compute finishes before the fragment shader tries to read it
-    //    glMemoryBarrier (GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    //    glMemoryBarrier (GL_SHADER_IMAGE_ACCESS_BARRIER_BIsetActiveShaderT);
     //    m_computeProgram->release();
 
         // End compute shader code
@@ -121,21 +122,23 @@ namespace SimCore
 
         glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glEnable (GL_DEPTH_TEST);
-        glEnable (GL_CULL_FACE);
+//        glEnable (GL_CULL_FACE);
 
         setActiveShader ("BumpLights");
 
         // Projection (The 4K Lens)
         float aspect = (float)width() / (float)height();
+        float currentFov = Globe::g_perspective * Globe::m_zoom; 
         QMatrix4x4 projection;
-        projection.perspective (45.0f, aspect, 0.1f, 100.0f);
+        projection.perspective (Globe::DEFAULT_PERSPECTIVE, aspect, 0.1f, 100.0f);
 
         // View (The Camera/Mouse controls)
         QMatrix4x4 view;
-        view.translate (m_offset.x(), m_offset.y(), -10.0f * m_zoom);
+        view.translate (Globe::m_offset.x(), Globe::m_offset.y(), -10.0f * Globe::m_zoom);
+
         // These rotations let the mouse "orbit" the globe
-        view.rotate (m_rotation.x(), 1.0f, 0.0f, 0.0f);
-        view.rotate (m_rotation.y(), 0.0f, 1.0f, 0.0f);
+        view.rotate (Globe::m_rotation.x(), 1.0f, 0.0f, 0.0f);
+        view.rotate (Globe::m_rotation.y(), 0.0f, 1.0f, 0.0f);
 
         QMatrix4x4 model;
 
@@ -180,8 +183,8 @@ namespace SimCore
 
         // Bind the Bump/Height Map
         glActiveTexture (GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_2D, bumpTextureID);
-        m_program->setUniformValue("bumpSampler", 2);
+        glBindTexture (GL_TEXTURE_2D, bumpTextureID);
+        m_program->setUniformValue ("bumpSampler", 2);
 
         // 3. Drawing
         m_vao.bind();
@@ -200,7 +203,7 @@ namespace SimCore
         m_vao.release();
         m_program->release();
 
-        /******************** Draw satellites *******************/
+        /******************** Draw satellites *******************
         // 1. Gather latest positions from ACE threads
         if (setActiveShader ("Satellites"))
         {
@@ -222,12 +225,12 @@ namespace SimCore
 
             // 3. Draw all satellites in ONE call
             m_program->bind();
-            m_program->setUniformValue ("mvp", projection * view * model);
+            m_program->setUniformValue ("mvp", mvp); //projection * view * model);
             m_program->setUniformValue ("satColor", QVector3D (1.0f, 0.0f, 1.0f)); // Magenta
 
             glEnable (GL_PROGRAM_POINT_SIZE); // Enables gl_PointSize from shader
             glEnable (GL_BLEND);
-//            glBlendFunc (GL_SRC_ALPHA, GL_ONE); // Additive blend makes them "glow"
+            glBlendFunc (GL_SRC_ALPHA, GL_ONE); // Additive blend makes them "glow"
             
             glBindVertexArray (m_satVao);
 
@@ -239,7 +242,7 @@ namespace SimCore
             m_program->release();
         }
 
-
+*/
         // FPS Logic
         static int frames = 0;
         static QElapsedTimer fpsTimer;
@@ -270,7 +273,7 @@ namespace SimCore
         glDisable (GL_CULL_FACE);
         QPainter painter (this);
 
-    //    painter.beginNativePainting();
+        painter.beginNativePainting();
 
         painter.setRenderHint (QPainter::Antialiasing);
         QRect viewport (0, 0, width(), height());
@@ -280,7 +283,7 @@ namespace SimCore
         {
 
             // Paint test (a large point on the North Pole, always visible
-        /*
+        
             // 2. Use the exact matrices from your globe draw
             QVector3D northPole (0.0f, 1.51f, 0.0f); // North Pole is Y-up
 
@@ -308,7 +311,9 @@ namespace SimCore
                     painter.drawText(x + 25, y, "NP");
                 }
             }
-        */
+            /***************** END TEST **********************/
+
+
             for (const auto& city : Globe::m_capitals)
             {
                 QVector3D worldPos = Utility::latLonToXYZ (Globe::m_liveOffset, city.lat, city.lon, Globe::cityLabelHeight);
@@ -396,11 +401,11 @@ namespace SimCore
             } // for (const auto& city : m_capitals)
         } // if (m_showCities)
 
-    //    painter.endNativePainting(); 
+        painter.endNativePainting(); 
 
         painter.end();
 
-        glEnable (GL_DEPTH_TEST);
+//        glEnable (GL_DEPTH_TEST);
 
         updateStatus();
     } // END: MyGLWidget::paintGL() 
@@ -437,11 +442,11 @@ namespace SimCore
     void MyGLWidget::wheelEvent (QWheelEvent *event)
     {
         float delta = event->angleDelta().y() > 0 ? 1.1f : 0.9f;
-        m_zoom *= delta;
+        Globe::m_zoom *= delta;
 
-        if (m_zoom < ZOOM_CLAMP)
+        if (Globe::m_zoom < ZOOM_CLAMP)
         {
-            m_zoom = ZOOM_CLAMP;
+            Globe::m_zoom = ZOOM_CLAMP;
         }
 
         updateStatus();
@@ -449,14 +454,14 @@ namespace SimCore
 
     void MyGLWidget::mouseMoveEvent (QMouseEvent *event)
     {
-        float adaptiveSens = sensitivity * m_zoom; 
+        float adaptiveSens = sensitivity * Globe::m_zoom; 
         float currentAspect = (float)width() / (float)height();
 
         if (event->buttons() & Qt::LeftButton)
         {
             QPoint diff = event->pos() - m_lastMousePos;
             // Dragging logic (adjust sensitivity as needed)
-            m_offset += QVector2D (
+            Globe::m_offset += QVector2D (
                                     (diff.x() * currentAspect * adaptiveSens) / (float)width(),
                                     (-diff.y() * adaptiveSens) / (float)height()
                                   );
@@ -465,8 +470,8 @@ namespace SimCore
         {
             QPoint diff = event->pos() - m_lastMousePos;
             // Rotation logic
-            adaptiveSens = rotSensitivity * m_zoom;
-            m_rotation += QVector2D (diff.y() * adaptiveSens, diff.x() * adaptiveSens);
+            adaptiveSens = rotSensitivity * Globe::m_zoom;
+            Globe::m_rotation += QVector2D (diff.y() * adaptiveSens, diff.x() * adaptiveSens);
         }
 
         m_lastMousePos = event->pos();
@@ -765,11 +770,12 @@ namespace SimCore
 
     void MyGLWidget::initializeGlobePosition()
     {
-        m_zoom = 1.0f;
-        m_offset = QVector2D (0.0f, 0.0f);
-        Globe::m_liveOffset = -90.0f;
-        Globe::m_liveTilt = 23.5f;
-        Globe::m_ambientLevel = 0.15f;
+        Globe::m_zoom = Globe::DEFAULT_ZOOM;
+        Globe::m_offset = Globe::DEFAULT_OFFSET;
+        Globe::m_liveOffset = Globe::DEFAULT_LIVEOFFSET;
+        Globe::m_liveTilt = Globe::DEFAULT_TILT;
+        Globe::m_rotation = Globe::DEFAULT_ROTATION;
+        Globe::m_ambientLevel = Globe::DEFAULT_AMBIENT;
 
         MainWindow::instance()->logMessage ("Globe reset to default position");
     }
