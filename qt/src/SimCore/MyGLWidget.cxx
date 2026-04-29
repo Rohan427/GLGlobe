@@ -33,11 +33,11 @@ namespace SimCore
         glBindVertexArray (m_satVao);
         glBindBuffer (GL_ARRAY_BUFFER, m_satVbo);
 
-        // Pre-allocate space for, say, 10,000 satellites
+        // Pre-allocate space for, say, 50,000 satellites
         glBufferData (GL_ARRAY_BUFFER, MAX_SATELLITES * sizeof (QVector3D), nullptr, GL_STREAM_DRAW);
 
-        glEnableVertexAttribArray (0);
         glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, sizeof (QVector3D), (void*)0);
+        glEnableVertexAttribArray (0);
 
         glBindVertexArray (0);
 
@@ -100,9 +100,33 @@ namespace SimCore
 
         Globe::timer.start();
         
-        // Spawn the thread pool
-        //m_entityManager->activate (THR_NEW_LWP | THR_JOINABLE | THR_INHERIT_SCHED, numThreads);
-        m_entityManager->activate (THR_NEW_LWP | THR_JOINABLE, numThreads);
+        //Access the satellite source from MainWindow
+        m_satelliteSource = MainWindow::instance()->getSatelliteSource();
+
+        // 1. Get the action from MainWindow (assuming you have a getter)
+        QAction* updateSatsAct = MainWindow::instance()->getUpdateSatsAct();
+        connect (updateSatsAct, &QAction::triggered, [this]()
+                    {
+                        // Access the network source and trigger the update
+                        auto* m_satelliteSource = MainWindow::instance()->getSatelliteSource();
+                        if (m_satelliteSource) m_satelliteSource->requestUpdate();
+                    }
+                );
+
+        //Connect NOW that we know m_entityManager is not null
+        bool success = connect (m_satelliteSource, &Network::BaseDataSource::dataReceived,
+                                m_entityManager, &SimCore::EntityManager::processTleData);
+        
+        if (success)
+        {
+            MainWindow::instance()->logMessage ("Network-to-Simulation bridge connected.");
+        }
+
+        // Activate the 32 ACE threads
+        m_entityManager->startSimulation (numThreads);
+
+        // Trigger an update
+        checkLocalCache();
     }
 
 
@@ -216,9 +240,16 @@ namespace SimCore
         {
             m_satPositions.clear();
 
+            int count = 0;
+
             for (auto* entity : m_entityManager->getEntities()) 
             {
-                m_satPositions.push_back (entity->getPosition());
+                QVector3D p = entity->getPosition();
+
+//                std::cout << count << ": " << p.x() << ", " << p.y() << ", " << p.z() << std::endl;
+
+                m_satPositions.push_back (p);
+                count++;
             }
 
             // 2. Stream to GPU using Orphaning
@@ -228,7 +259,9 @@ namespace SimCore
             glBufferData (GL_ARRAY_BUFFER, MAX_SATELLITES * sizeof (QVector3D), nullptr, GL_STREAM_DRAW);
 
             // Upload new data
-            glBufferSubData (GL_ARRAY_BUFFER, 0, m_satPositions.size() * sizeof (QVector3D), m_satPositions.data());
+            GLsizeiptr totalBytes = m_satPositions.size() * sizeof(QVector3D);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, totalBytes, m_satPositions.data());
+//            glBufferSubData (GL_ARRAY_BUFFER, 0, m_satPositions.size() * sizeof (QVector3D), m_satPositions.data());
 
             // 3. Draw all satellites in ONE call
             m_program->bind();
@@ -242,7 +275,13 @@ namespace SimCore
             glBindVertexArray (m_satVao);
 
             // Use GL_POINTS for massive performance on RDNA3
-            glDrawArrays (GL_POINTS, 0, m_satPositions.size());
+//            glDisable(GL_DEPTH_TEST);
+            glDepthFunc(GL_LEQUAL); 
+
+//            std::cout << "Drawing " << m_satPositions.size() << " sats" << std::endl;
+
+            glDrawArrays (GL_POINTS, 0, (GLsizei)m_satPositions.size());
+
             glBindVertexArray (0);
             glDisable (GL_BLEND);
 
@@ -274,21 +313,25 @@ namespace SimCore
         }
         
 
-        /********************** 2D Painter *********************/
+        /********************** 2D Painter *********************
         glDisable (GL_DEPTH_TEST);
         glDisable (GL_CULL_FACE);
         QPainter painter (this);
+
+        QFont font ("Arial", Globe::m_fontSize, QFont::Normal); // Specifically name a common font
+        font.setHintingPreference (QFont::PreferNoHinting); // Prevents expensive glyph caching
+        painter.setFont (font);
 
         painter.beginNativePainting();
 
         painter.setRenderHint (QPainter::Antialiasing);
         QRect viewport (0, 0, width(), height());
 
-        /*************** City labels ***************/
+        ///////////////////// City labels //////////////////////////
         if (Globe::m_showCities)
         {
 
-            /** Paint test (a large point on the North Pole, always visible **
+            /// Paint test (a large point on the North Pole, always visible ///
         
             // 2. Use the exact matrices from your globe draw
             QVector3D northPole (0.0f, 1.51f, 0.0f); // North Pole is Y-up
@@ -317,7 +360,7 @@ namespace SimCore
                     painter.drawText(x + 25, y, "NP");
                 }
             }
-            ***************** END TEST **********************/
+            ***************** END TEST **********************
 
 
             for (const auto& city : Globe::m_capitals)
@@ -338,8 +381,8 @@ namespace SimCore
                 shadowPen.setWidth (7);
 
                 // Create a font object with your preferred family
-                QFont cityFont ("Arial", Globe::m_fontSize, QFont::Normal);
-                painter.setFont (cityFont);
+//                QFont cityFont ("Arial", Globe::m_fontSize, QFont::Normal);
+//                painter.setFont (cityFont);
                 
                 if (clipPos.w() != 0.0f)
                 {
@@ -387,10 +430,10 @@ namespace SimCore
 
                                 // Draw Content
                                 painter.setPen (Qt::white);
-                                painter.setFont (QFont ("Arial", Globe::m_fontSize, QFont::Bold));
+//                                painter.setFont (QFont ("Arial", Globe::m_fontSize, QFont::Bold));
                                 painter.drawText (cardRect.adjusted (10, 10, -10, -10), Qt::AlignTop, Globe::m_selectedCity->name);
                                 
-                                painter.setFont (QFont ("Arial", Globe::m_fontSize));
+//                                painter.setFont (QFont ("Arial", Globe::m_fontSize));
                                 painter.drawText (cardRect.adjusted (10, 35, -10, -10), Qt::AlignTop, Globe::m_selectedCity->extraInfo);
                             }
                             else
@@ -411,9 +454,10 @@ namespace SimCore
 
         painter.end();
 
+        /******************* end painter ***************/
+
         updateStatus();
     } // END: MyGLWidget::paintGL() 
-
 
     void MyGLWidget::resizeGL (int w, int h)
     {
@@ -784,7 +828,6 @@ namespace SimCore
         MainWindow::instance()->logMessage ("Globe reset to default position");
     }
 
-
     GLuint MyGLWidget::loadTexture (std::array<int, 2>& mapSize, const QString& filePath)
     {
         QImageReader reader (filePath);
@@ -855,7 +898,6 @@ namespace SimCore
 
         return true;
     }
-
 
     bool MyGLWidget::initShader (QOpenGLShaderProgram* program, const QString& vPath, const QString& fPath)
     {
@@ -995,5 +1037,70 @@ namespace SimCore
             // ... add the rest here
         };
     */
+    }
+
+    void MyGLWidget::checkLocalCache()
+    {
+        if (MainWindow::instance())
+        {
+            MainWindow::instance()->logMessage ("Checking data cache...");
+        }
+
+        std::cout << "Checking data cache..." << std::endl;
+
+        QDir dir (Globe::DATA_DIR_PATH);
+        QStringList filters;
+        filters << "satellites_*.tle";
+        
+        // Get list of cache files sorted by date
+        QFileInfoList files = dir.entryInfoList (filters, QDir::Files, QDir::Time);
+
+        if (!files.isEmpty())
+        {
+            if (MainWindow::instance())
+            {
+                MainWindow::instance()->logMessage ("Files found...");
+            }
+
+            std::cout << "Files found..." << std::endl;
+
+            // Check for old files and delete them
+            for (const QFileInfo& info : files)
+            {
+                if (info.lastModified().daysTo (QDateTime::currentDateTime()) > 2)
+                {
+                    QFile::remove (info.absoluteFilePath());
+                }
+            }
+
+            if (MainWindow::instance())
+            {
+                MainWindow::instance()->logMessage ("Loading file...");
+            }
+
+            std::cout << "Loading file..." << std::endl;
+
+            QFileInfo latest = files.first();
+            qint64 secsOld = latest.lastModified().secsTo (QDateTime::currentDateTime());
+
+            if (secsOld < 7200)
+            { // 2 Hours = 7200 seconds
+                if (MainWindow::instance())
+                {
+                    MainWindow::instance()->logMessage ("Using fresh local cache: " + latest.fileName());
+                }
+
+                std::cout << "Using fresh local cache: " << latest.fileName().toStdString() << std::endl;
+
+                m_entityManager->processTleData ("FILE_READY:" + latest.absoluteFilePath());
+
+                return;
+            }
+        }
+        
+        std::cout << "Requesting new data..." << std::endl;
+
+        // If no files or they are old, trigger a fresh download
+        m_satelliteSource->requestUpdate();
     }
 }

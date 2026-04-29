@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 
 project (LegacyGLApp VERSION 1.2 LANGUAGES CXX)
 
+set (CMAKE_AUTOMOC ON)
+
 ################## Find HIP ##################
 find_package (hip REQUIRED)
 
@@ -43,7 +45,7 @@ endif()
 
 ################## Find QT6 and OpenGL ##################
 # In Qt6, QOpenGLWidget was moved to its own 'OpenGLWidgets' module
-find_package (Qt6 REQUIRED COMPONENTS Widgets OpenGL OpenGLWidgets)
+find_package (Qt6 REQUIRED COMPONENTS Widgets OpenGL OpenGLWidgets Network)
 
 # 2. Find the system OpenGL library (for legacy gl* symbols)
 # RHEL 10 uses GLVND by default; setting this to LEGACY ensures 
@@ -75,6 +77,7 @@ set (SOURCES
     ${SOURCE_ROOT}/SimCore/MyGLWidget.cxx
     ${SOURCE_ROOT}/Space/Satellite.cxx
     ${SOURCE_ROOT}/SimCore/EntityManager.cxx
+    ${SOURCE_ROOT}/Network/CelesTrakSource.cxx
 )
 
 set (HEADERS
@@ -86,7 +89,9 @@ set (HEADERS
     ${HEADER_ROOT}/BaseEntity.hxx
     ${HEADER_ROOT}/EntityManager.hxx
     ${HEADER_ROOT}/Utility.hxx
+    ${HEADER_ROOT}/CelesTrakSource.hxx
     ${HEADER_ROOT}/Globe.hxx
+    ${HEADER_ROOT}/BaseDataSource.hxx
 )
 
 # Define output folders
@@ -103,6 +108,7 @@ target_link_libraries (LegacyGLApp PRIVATE
     Qt6::Widgets 
     Qt6::OpenGL 
     Qt6::OpenGLWidgets
+    Qt6::Network
     OpenGL::GL
     "$ENV{SPG4_LIB}/libsgp4s.so"
     ${ACE_LIBRARY}

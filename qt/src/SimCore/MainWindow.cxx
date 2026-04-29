@@ -1,4 +1,5 @@
 #include "MainWindow.hxx"
+#include "EntityManager.hxx"
 
 
 using namespace SimCore;
@@ -9,6 +10,9 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow(parent)
 {
     s_instance = this;
 
+    // Create the satellitedata source
+    satelliteSource = new Network::CelesTrakSource();
+
     // Central container
     QWidget* central = new QWidget (this);
     setCentralWidget (central);
@@ -16,6 +20,7 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow(parent)
 
     // Create Top Toolbar (for the toggle button)
     QHBoxLayout* toolbar = new QHBoxLayout();
+
 
     // Create the Settings Menu
     QMenu* settingsMenu = new QMenu ("Settings", this);
@@ -35,6 +40,11 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow(parent)
 
     // Add the action to the menu
     settingsMenu->addAction (toggleCityAct);
+
+    updateSatsAct = new QAction ("Update Satellite Data", this);
+    settingsMenu->addAction (updateSatsAct);
+
+
 
     // Create a Toggle Button (at the top of the sidebar or in a toolbar)
     QPushButton* toggleBtn = new QPushButton ("« Toggle Sidebar (Tab)", this);
@@ -105,6 +115,7 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow(parent)
     connect (tiltSpin, &QDoubleSpinBox::valueChanged, glViewport, &MyGLWidget::setAxialTilt);
     connect (ambientSpin, &QDoubleSpinBox::valueChanged, glViewport, &MyGLWidget::setAmbientLevel);
     connect (toggleCityAct, &QAction::toggled, glViewport, &MyGLWidget::toggleCities);
+//    connect (updateSatsAct, &QAction::triggered, satelliteSource, &Network::BaseDataSource::requestUpdate);
 
     //********** END Controls (Remove when complete **********//
 
@@ -177,6 +188,8 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow(parent)
 
     // 4. Set a larger initial window size
     this->setMinimumSize (1920, 1080); // Start at 1080p size even on 4K
+
+
 }
 
 MainWindow* MainWindow::instance()
@@ -191,4 +204,14 @@ void MainWindow::logMessage (const QString& msg)
         // Appends text with a newline and scrolls to bottom
         console->appendPlainText (msg);
     }
+}
+
+Network::CelesTrakSource* MainWindow::getSatelliteSource()
+{
+    return satelliteSource;
+}
+
+QAction* MainWindow::getUpdateSatsAct()
+{
+    return updateSatsAct;
 }

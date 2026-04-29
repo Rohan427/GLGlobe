@@ -12,7 +12,12 @@
 #include <QDoubleSpinBox>
 #include <QToolButton>
 #include <QMenu>
+#include <QObject>
+#include <QtNetwork/QNetworkAccessManager>
+#include <QtNetwork/QNetworkRequest>
+#include <QtNetwork/QNetworkReply>
 #include "MyGLWidget.hxx"
+#include "CelesTrakSource.hxx"
 
 namespace SimCore
 {
@@ -25,12 +30,16 @@ namespace SimCore
 
             explicit MainWindow (QWidget *parent = nullptr);
             static MainWindow* instance(); // For global access
+            Network::CelesTrakSource* getSatelliteSource();
+            QAction* getUpdateSatsAct();
 
         private:
             static MainWindow* s_instance;
             QWidget* sidebarContainer;
             QPlainTextEdit* console;
             MyGLWidget* glViewport;
+            Network::CelesTrakSource* satelliteSource;
+            QAction* updateSatsAct; 
 
         public slots:
             void toggleSidebar()

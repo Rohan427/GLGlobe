@@ -8,6 +8,7 @@
 #include <Tle.h>
 #include <memory>
 #include <mutex>
+#include <atomic>
 
 namespace Space
 {
@@ -32,5 +33,6 @@ namespace Space
             std::unique_ptr<libsgp4::SGP4> m_propagator;
             QVector3D m_currentPos;
             mutable ACE_Thread_Mutex m_posLock;
+            std::atomic<int> m_updateCount{0};
     };
 } // namespace SimCore::Space

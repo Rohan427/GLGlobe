@@ -25,6 +25,8 @@ namespace Globe
             inline static const float LABEL_HEIGHT_OFFSET = 0.0001f;
             inline static const int THREAD_SLEEP_TIME = 50000;  // 50ms tick
             inline static const int MAX_THREADS = 32;
+            inline static const QString DATA_DIR_PATH = "data";
+            inline static const QString DATA_FILE_SAT_SUFFIX = "sat.tle";
 
             // Shared matrix variables
             inline QMatrix4x4 modelMatrix;

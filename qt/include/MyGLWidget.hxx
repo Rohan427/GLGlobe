@@ -22,6 +22,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QtMath>
+#include <QFile>
+#include <QFileInfo>
 //#include "MainWindow.hxx"
 
 #include "SGP4.h"
@@ -32,6 +34,7 @@
 #include "Globe.hxx"
 #include "EntityManager.hxx"
 #include "Satellite.hxx"
+#include "CelesTrakSource.hxx"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -97,6 +100,8 @@ namespace SimCore
             GLuint m_satVao;
             GLuint m_satVbo;
             std::vector<QVector3D> m_satPositions; // CPU staging buffer
+
+            Network::CelesTrakSource* m_satelliteSource;
 
             /*********************** Functions *******************/
 
@@ -174,6 +179,8 @@ namespace SimCore
 
             // Inside the widget for executing compute shader
             void runCompute();
+
+            void checkLocalCache();
 
         public slots:
             void resetView()

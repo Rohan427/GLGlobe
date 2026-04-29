@@ -1,4 +1,5 @@
 #include "Satellite.hxx"
+#include "MainWindow.hxx"
 
 namespace Space 
 {
@@ -15,9 +16,18 @@ namespace Space
     {
         if (!m_propagator)
         {
-            std::cout << "No propagator" << std::endl;
+//            std::cout << "No propagator" << std::endl;
+
+            SIM_LOG ("No propagator");
 
             return;
+        }
+
+        m_updateCount++;
+
+        if (m_updateCount % 100 == 0)
+        {
+            std::cout << m_name.toStdString() << " update count: " << m_updateCount << std::endl;
         }
 
         // Convert msecs to SGP4 DateTime
@@ -32,15 +42,14 @@ namespace Space
             libsgp4::CoordGeodetic geo = eci.ToGeodetic();
 
             float altMultiplier = (6371.0f + (float)geo.altitude) / 6371.0f;
-            QVector3D newPos = Utility::latLonToXYZ (liveOffset, geo.latitude, geo.longitude, Globe::globeRadius * altMultiplier);
+            QVector3D newPos = Utility::latLonToXYZRad (liveOffset, geo.latitude, geo.longitude, Globe::globeRadius * altMultiplier);
 
             ACE_GUARD (ACE_Thread_Mutex, ace_mon, m_posLock);
             m_currentPos = newPos;
         } 
         catch (...)
         {
-//            SimCore::MainWindow::instance()->logMessage (QString ("SGP4 Error: %1").arg (e.what()));
-            std::cout << "TLE Exception: " << std::endl;
+            SIM_LOG ("TLE Exception");
         }
     }
 
