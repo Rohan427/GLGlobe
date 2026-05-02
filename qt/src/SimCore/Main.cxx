@@ -5,8 +5,15 @@
 
 using namespace SimCore;
 
-int main (int argc, char *argv[])
+//int main (int argc, char *argv[])
+int ACE_TMAIN (int argc, ACE_TCHAR *argv[])
 {
+    // Set ACE to show: Time | Severity | Thread ID | Message
+    ACE_Log_Msg::instance()->open (argv[0], ACE_Log_Msg::STDERR); // | ACE_Log_Msg::LOGGER);
+    ACE_Log_Msg::instance()->priority_mask (LM_DEBUG | LM_INFO | LM_ERROR | LM_CRITICAL, ACE_Log_Msg::PROCESS);
+
+    ACE_DEBUG ((LM_INFO, ACE_TEXT ("[%T][%M][TID:%t] %s\n"), "Starting up"));
+
     // 1. Force Qt to ONLY look in the standard RHEL system plugin directory
     // This stops it from scanning your local build folders and crashing
     qputenv ("QT_PLUGIN_PATH", "/usr/lib64/qt6/plugins");
@@ -30,8 +37,13 @@ int main (int argc, char *argv[])
 
     QGuiApplication::setHighDpiScaleFactorRoundingPolicy (Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 
+    ACE_DEBUG ((LM_INFO, ACE_TEXT ("[%T][%M][TID:%t] %s\n"), "Initializing Application"));
     QApplication a (argc, argv);
+
+    ACE_DEBUG ((LM_INFO, ACE_TEXT ("[%T][%M][TID:%t] %s\n"), "Initializing Main Window"));
     MainWindow w;
     w.show();
+
+    ACE_DEBUG ((LM_INFO, ACE_TEXT ("[%T][%M][TID:%t] %s\n"), "Starting Application"));
     return a.exec();
 }

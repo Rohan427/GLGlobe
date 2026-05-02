@@ -39,7 +39,7 @@ namespace SimCore
             QPlainTextEdit* console;
             MyGLWidget* glViewport;
             Network::CelesTrakSource* satelliteSource;
-            QAction* updateSatsAct; 
+            QAction* updateSatsAct;
 
         public slots:
             void toggleSidebar()

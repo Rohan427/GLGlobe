@@ -7,3 +7,4 @@
 #include <QtMath>
 #include "MyGLWidget.hxx"
 #include "MainWindow.hxx"
+#include <ace/Log_Msg.h>

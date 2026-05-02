@@ -4,15 +4,19 @@
 #include <QVector3D>
 #include <QString>
 #include <QDateTime>
+#include <ace/Log_Msg.h>
 
-
-#define SIM_LOG(msg) \
+#define SIM_LOG(level, msg) \
     do { \
-    QString qmsg = QString("[%1] %2").arg(QDateTime::currentDateTime().toString("hh:mm:ss.zzz")).arg(msg); \
-        if (MainWindow::instance()) { \
+    QString qmsg = QString(msg); \
+    /* Route ONLY high-priority logs to the GUI */ \
+        if (MainWindow::instance() && (level == LM_INFO || level == LM_ERROR || level == LM_CRITICAL \
+         || level == LM_WARNING)) { \
         MainWindow::instance()->logMessage(qmsg); \
     } \
-    std::clog << qmsg.toStdString() << std::endl; \
+    /* Send EVERYTHING to the ACE logger (Terminal/File) */ \
+    /* %T = Time, %t = Thread ID, %M = Priority Level Name */ \
+    ACE_DEBUG((level, ACE_TEXT("[%T][%M][TID:%t] %s\n"), qmsg.toUtf8().constData())); \
 } while (0)
 
 namespace SimCore

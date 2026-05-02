@@ -6,9 +6,11 @@ using namespace SimCore;
 
 MainWindow* MainWindow::s_instance = nullptr;
 
-MainWindow::MainWindow (QWidget *parent) : QMainWindow(parent)
+MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
 {
     s_instance = this;
+
+    ACE_DEBUG ((LM_INFO, ACE_TEXT("[%T][%M][TID:%t] %s\n"), "Main Window startup"));
 
     // Create the satellitedata source
     satelliteSource = new Network::CelesTrakSource();
@@ -59,6 +61,53 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow(parent)
     // 1. OpenGL Viewport (Left)
     glViewport = new MyGLWidget (this);
     mainLayout->addWidget (glViewport, 1); // Stretch factor of 1
+
+
+
+    // Sources menu
+    QToolButton* sourcesBtn = new QToolButton (this);
+    sourcesBtn->setText ("Satellite Sources");
+    sourcesBtn->setPopupMode (QToolButton::InstantPopup);
+    
+    QMenu* sourcesMenu = new QMenu (sourcesBtn);
+
+    QMap<QString, QString> m_tleGroups = satelliteSource->getGroups();
+    
+    // Define our groups
+    //QMap<QString, QString> groups = {
+    //    {"STARLINK", "Starlink"},
+    //    {"STATIONS", "Space Stations"},
+    //    {"ORBCOMM", "Orbcomm"},
+    //    {"GPS-OPS", "GPS (Nav)"},
+    //    {"ACTIVE", "All Active"}
+    //};
+
+    for (auto it = m_tleGroups.begin(); it != m_tleGroups.end(); ++it)
+    {
+        QAction* act = sourcesMenu->addAction (it.value());
+        act->setCheckable (true);
+        QString groupKey = it.key();
+
+        connect (act, &QAction::triggered, [this, groupKey](bool checked)
+        {
+            if (checked)
+            {
+                satelliteSource->requestGroup (groupKey);
+            }
+            else
+            {
+                auto* manager = glViewport->getEntityManager();
+
+                if (manager)
+                {
+                    manager->removeByGroup (groupKey);
+                }
+            }
+        });
+    }
+
+    sourcesBtn->setMenu (sourcesMenu);
+    toolbar->addWidget (sourcesBtn);
 
     // 2. Sidebar (Right)
     // A. Initialize the Sidebar Container (CRITICAL: Assign to member variable)

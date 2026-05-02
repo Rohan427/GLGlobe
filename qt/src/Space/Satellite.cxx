@@ -5,11 +5,15 @@ namespace Space
 {
     using namespace SimCore;
 
-    Satellite::Satellite (const QString& name, const std::string& tle1, const std::string& tle2) 
+    Satellite::Satellite (const QString& name, const std::string& tle1, const std::string& tle2, const QString& group) 
         : m_name (name) 
     {
         libsgp4::Tle tle (name.toStdString(), tle1, tle2);
         m_propagator = std::make_unique<libsgp4::SGP4> (tle);
+        m_group = group;
+        m_noradId = QString::fromStdString (tle1.substr (2, 5));
+
+        std::cout << "Created new satellite " << m_noradId.toStdString() << std::endl;
     }
 
     void Satellite::updatePhysics (qint64 msecs, float liveOffset)
@@ -18,17 +22,18 @@ namespace Space
         {
 //            std::cout << "No propagator" << std::endl;
 
-            SIM_LOG ("No propagator");
+            SIM_LOG (LM_CRITICAL, "No propagator");
 
             return;
         }
 
-        m_updateCount++;
+        // DEBUG
+        //m_updateCount++;
 
-        if (m_updateCount % 100 == 0)
-        {
-            std::cout << m_name.toStdString() << " update count: " << m_updateCount << std::endl;
-        }
+        //if (m_updateCount % 100 == 0)
+        //{
+        //    std::cout << m_name.toStdString() << " update count: " << m_updateCount << std::endl;
+        //}
 
         // Convert msecs to SGP4 DateTime
         QDateTime qtTime = QDateTime::fromMSecsSinceEpoch (msecs, Qt::UTC);
@@ -49,7 +54,6 @@ namespace Space
         } 
         catch (...)
         {
-            SIM_LOG ("TLE Exception");
         }
     }
 

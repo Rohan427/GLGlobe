@@ -6,6 +6,8 @@ namespace SimCore
 {
     void MyGLWidget::initializeGL() 
     {
+        SIM_LOG (LM_INFO, "Initializing GL pipeline");
+
         initCapitals ("/home/pgallen/Downloads/capitals.csv");
 
         // Initialize entity manager
@@ -16,13 +18,13 @@ namespace SimCore
 
         // TODO: Remove hard coded satellite when we're ready for more objects and have data for them
         // Re-add the ISS as a Space Entity
-        std::string l1 = "1 25544U 98067A   24116.51782528  .00002182  00000-0 -11606-4 0  2927";
-        std::string l2 = "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537";
+//        std::string l1 = "1 25544U 98067A   24116.51782528  .00002182  00000-0 -11606-4 0  2927";
+//        std::string l2 = "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537";
         
-        auto* iss = new Space::Satellite ("ISS (ZARYA)", l1, l2);
-        m_entityManager->addEntity (iss);
+//        auto* iss = new Space::Satellite ("ISS (ZARYA)", l1, l2);
+//        m_entityManager->addEntity (iss);
 
-        MainWindow::instance()->logMessage ("ISS re-initialized in Space package.");
+//       SIM_LOG (LM_INFO, "ISS re-initialized in Space package.");
 
         initializeOpenGLFunctions(); // Required in Qt to access gl* calls
 
@@ -68,7 +70,7 @@ namespace SimCore
 
         if (!m_program->link())
         {
-            qDebug() << "Shader Linker Error:" << m_program->log();
+            SIM_LOG (LM_INFO, QString ("Shader Linker Error: %1").arg (m_program->log()));
         }
 
         generateSphere (Globe::globeRadius, Globe::globeSectors, Globe::globeStacks);
@@ -79,12 +81,12 @@ namespace SimCore
         // 3D sphere
         m_vbo.allocate (m_sphereVertices.data(), m_sphereVertices.size() * sizeof (float));
 
-        qDebug() << "Load texture";
+        SIM_LOG (LM_INFO, "Load texture");
         //textureID = loadTexture (mapSizes.huge, "textures/1_earth_16k.jpg");
         
         if (!loadTextureFiles (Globe::mapSizes.huge))
         {
-            qCritical() << "FATAL ERROR: Failed to initialize textures";
+            SIM_LOG (LM_CRITICAL, "FATAL ERROR: Failed to initialize textures");
             QCoreApplication::exit (1); // Exit app
             return;
         }
@@ -103,30 +105,38 @@ namespace SimCore
         //Access the satellite source from MainWindow
         m_satelliteSource = MainWindow::instance()->getSatelliteSource();
 
-        // 1. Get the action from MainWindow (assuming you have a getter)
+        // 1. Get the action from MainWindow
         QAction* updateSatsAct = MainWindow::instance()->getUpdateSatsAct();
         connect (updateSatsAct, &QAction::triggered, [this]()
                     {
                         // Access the network source and trigger the update
                         auto* m_satelliteSource = MainWindow::instance()->getSatelliteSource();
-                        if (m_satelliteSource) m_satelliteSource->requestUpdate();
+                        if (m_satelliteSource) m_satelliteSource->requestGroup();
                     }
                 );
 
         //Connect NOW that we know m_entityManager is not null
         bool success = connect (m_satelliteSource, &Network::BaseDataSource::dataReceived,
-                                m_entityManager, &SimCore::EntityManager::processTleData);
+                                m_entityManager, &SimCore::EntityManager::processTleData,
+                                Qt::QueuedConnection);
         
         if (success)
         {
-            MainWindow::instance()->logMessage ("Network-to-Simulation bridge connected.");
+            SIM_LOG (LM_INFO, "Network-to-Simulation bridge connected.");
         }
 
         // Activate the 32 ACE threads
         m_entityManager->startSimulation (numThreads);
 
         // Trigger an update
-        checkLocalCache();
+        // Schedule the cache check for 500ms after the app starts
+        // This allows the GUI to "pop up" and the 7800 XT to warm up first.
+        SIM_LOG (LM_INFO, "Waiting on QT to start...");
+        QTimer::singleShot (500, this, [this]()
+        {
+            this->checkLocalCache();
+            SIM_LOG (LM_INFO, "Local cache check complete.");
+        });
     }
 
 
@@ -259,8 +269,8 @@ namespace SimCore
             glBufferData (GL_ARRAY_BUFFER, MAX_SATELLITES * sizeof (QVector3D), nullptr, GL_STREAM_DRAW);
 
             // Upload new data
-            GLsizeiptr totalBytes = m_satPositions.size() * sizeof(QVector3D);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, totalBytes, m_satPositions.data());
+            GLsizeiptr totalBytes = m_satPositions.size() * sizeof (QVector3D);
+            glBufferSubData (GL_ARRAY_BUFFER, 0, totalBytes, m_satPositions.data());
 //            glBufferSubData (GL_ARRAY_BUFFER, 0, m_satPositions.size() * sizeof (QVector3D), m_satPositions.data());
 
             // 3. Draw all satellites in ONE call
@@ -303,8 +313,8 @@ namespace SimCore
         {
             // Combine FPS + the camera status we saved earlier
             QString fullStatus = QString ("FPS: %1 | %2")
-                                 .arg (frames)
-                                 .arg (m_currentStatusString);
+                                         .arg (frames)
+                                         .arg (m_currentStatusString);
             
             emit cameraChanged (fullStatus);
             
@@ -313,7 +323,7 @@ namespace SimCore
         }
         
 
-        /********************** 2D Painter *********************
+        /********************** 2D Painter *********************/
         glDisable (GL_DEPTH_TEST);
         glDisable (GL_CULL_FACE);
         QPainter painter (this);
@@ -330,7 +340,7 @@ namespace SimCore
         ///////////////////// City labels //////////////////////////
         if (Globe::m_showCities)
         {
-
+/*
             /// Paint test (a large point on the North Pole, always visible ///
         
             // 2. Use the exact matrices from your globe draw
@@ -360,7 +370,7 @@ namespace SimCore
                     painter.drawText(x + 25, y, "NP");
                 }
             }
-            ***************** END TEST **********************
+            ***************** END TEST **********************/
 
 
             for (const auto& city : Globe::m_capitals)
@@ -825,7 +835,7 @@ namespace SimCore
         Globe::m_rotation = Globe::DEFAULT_ROTATION;
         Globe::m_ambientLevel = Globe::DEFAULT_AMBIENT;
 
-        MainWindow::instance()->logMessage ("Globe reset to default position");
+        SIM_LOG (LM_INFO, "Globe reset to default position");
     }
 
     GLuint MyGLWidget::loadTexture (std::array<int, 2>& mapSize, const QString& filePath)
@@ -837,7 +847,7 @@ namespace SimCore
 
         if (!reader.canRead())
         {
-            qDebug() << "Cannot read image: " << reader.errorString();
+            SIM_LOG (LM_ERROR, QString ("Cannot read image: %1").arg (reader.errorString()));
             return 0;
         }
 
@@ -891,7 +901,7 @@ namespace SimCore
             }
             else
             {
-                std::cout << "Fatal error: Texure ID is 0" << std::endl; 
+                SIM_LOG (LM_CRITICAL, "Fatal error: Texure ID is 0"); 
                 return false;
             }
         }
@@ -921,10 +931,7 @@ namespace SimCore
         }
         else
         {
-            std::cout << "Shader does not exist: " << name.toStdString() << std::endl;
-
-            MainWindow::instance()->logMessage (QString ("ERROR: Shader does not exist: %1")
-                                                .arg (name.toStdString()));
+            SIM_LOG (LM_CRITICAL, QString ("ERROR: Shader does not exist: %1").arg (name.toStdString()));
             return false;
         }
         
@@ -942,30 +949,23 @@ namespace SimCore
                 prog->link())
         {
             Globe::m_shaders.insert (name, prog);
-            std::cout << "Successfully registered shader: " << name.toStdString() << std::endl;
-
-            MainWindow::instance()->logMessage (QString ("Successfully registered shader: %1")
-                                                .arg (name.toStdString()));
+            SIM_LOG (LM_INFO, QString ("Successfully registered shader: %1").arg (name.toStdString()));
         }
         else
         {
-            std::cout << "Failed to link shader: " << name.toStdString() <<", " << prog->log().toStdString() << std::endl;
-
-            MainWindow::instance()->logMessage (QString ("CRITICAL: Failed to link shader: %1, %2")
-                                                .arg (name.toStdString())
-                                                .arg (prog->log().toStdString()));
+            SIM_LOG (LM_CRITICAL, QString ("CRITICAL: Failed to link shader: %1, %2")
+                                          .arg (name.toStdString())
+                                          .arg (prog->log().toStdString())
+                    );
             result = false;
         }
 
-        return false;
+        return result;
     }
 
     void MyGLWidget::initCapitals (QString filename)
     {
-        std::cout << "Reading .csv file" << std::endl;
-
-        MainWindow::instance()->logMessage (QString ("Opening City file: %1")
-                                            .arg (filename));
+        SIM_LOG (LM_INFO, QString ("Opening City file: %1").arg (filename));
 
         Globe::m_capitals.clear();
 
@@ -974,11 +974,10 @@ namespace SimCore
 
         if (!checkFile.exists() || !checkFile.isFile())
         {
-            std::cout << "File does not exist" << std::endl;
-
-            MainWindow::instance()->logMessage (QString ("CRITICAL: %1 not found at %2")
-                                                .arg (filename)
-                                                .arg (checkFile.absoluteFilePath()));
+            SIM_LOG (LM_ERROR, QString ("CRITICAL: %1 not found at %2")
+                                       .arg (filename)
+                                       .arg (checkFile.absoluteFilePath())
+                    );
             return;
         }
 
@@ -987,17 +986,14 @@ namespace SimCore
 
         if (!file.open (QIODevice::ReadOnly | QIODevice::Text))
         {
-            std::cout << "Failed to open file" << std::endl;
-
-            MainWindow::instance()->logMessage (QString ("ERROR: Could not open %1. Reason: %2")
-                                                .arg (filename)
-                                                .arg (file.errorString())
-                                               );
+            SIM_LOG (LM_ERROR, QString ("ERROR: Could not open %1. Reason: %2")
+                             .arg (filename)
+                             .arg (file.errorString())
+                             );
             return;
         }
 
-        std::cout << "File opened" << std::endl;
-        MainWindow::instance()->logMessage ("Successfully opened " + filename);
+        SIM_LOG (LM_INFO, "Successfully opened " + filename);
 
         QTextStream in (&file);
         // Skip header line if your CSV has one
@@ -1023,7 +1019,7 @@ namespace SimCore
 
         file.close();
 
-        MainWindow::instance()->logMessage (QString ("Loaded %1 cities.").arg (Globe::m_capitals.size()));
+       SIM_LOG (LM_INFO, QString ("Loaded %1 cities.").arg (Globe::m_capitals.size()));
     /*
         m_capitals =
         {
@@ -1039,29 +1035,21 @@ namespace SimCore
     */
     }
 
-    void MyGLWidget::checkLocalCache()
+    void MyGLWidget::checkLocalCache (const QString& groupKey)
     {
-        if (MainWindow::instance())
-        {
-            MainWindow::instance()->logMessage ("Checking data cache...");
-        }
-
-        std::cout << "Checking data cache..." << std::endl;
+        std::cout << "Checking data cache " << groupKey.toStdString() << std::endl;
 
         QDir dir (Globe::DATA_DIR_PATH);
+        QString filter = QString ("satellites_%1_*.tle").arg (groupKey.toLower());
+
         QStringList filters;
         filters << "satellites_*.tle";
         
-        // Get list of cache files sorted by date
-        QFileInfoList files = dir.entryInfoList (filters, QDir::Files, QDir::Time);
+        // Sort by Time to ensure files.first() is the newest
+        QFileInfoList files = dir.entryInfoList ({filter}, QDir::Files, QDir::Time);
 
         if (!files.isEmpty())
         {
-            if (MainWindow::instance())
-            {
-                MainWindow::instance()->logMessage ("Files found...");
-            }
-
             std::cout << "Files found..." << std::endl;
 
             // Check for old files and delete them
@@ -1070,29 +1058,20 @@ namespace SimCore
                 if (info.lastModified().daysTo (QDateTime::currentDateTime()) > 2)
                 {
                     QFile::remove (info.absoluteFilePath());
+                    SIM_LOG (LM_INFO, "Cleaned up old cache file: " + info.fileName());
                 }
-            }
-
-            if (MainWindow::instance())
-            {
-                MainWindow::instance()->logMessage ("Loading file...");
             }
 
             std::cout << "Loading file..." << std::endl;
 
             QFileInfo latest = files.first();
-            qint64 secsOld = latest.lastModified().secsTo (QDateTime::currentDateTime());
+            qint64 secsOld = latest.lastModified().toUTC().secsTo (QDateTime::currentDateTimeUtc());
 
             if (secsOld < 7200)
             { // 2 Hours = 7200 seconds
-                if (MainWindow::instance())
-                {
-                    MainWindow::instance()->logMessage ("Using fresh local cache: " + latest.fileName());
-                }
-
                 std::cout << "Using fresh local cache: " << latest.fileName().toStdString() << std::endl;
 
-                m_entityManager->processTleData ("FILE_READY:" + latest.absoluteFilePath());
+                m_entityManager->processTleData ("FILE_READY:" + latest.absoluteFilePath(), groupKey);
 
                 return;
             }
@@ -1101,6 +1080,6 @@ namespace SimCore
         std::cout << "Requesting new data..." << std::endl;
 
         // If no files or they are old, trigger a fresh download
-        m_satelliteSource->requestUpdate();
+        m_satelliteSource->requestGroup (groupKey);
     }
-}
+}    

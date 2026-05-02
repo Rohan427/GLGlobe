@@ -24,6 +24,7 @@
 #include <QtMath>
 #include <QFile>
 #include <QFileInfo>
+#include <QTimer>
 //#include "MainWindow.hxx"
 
 #include "SGP4.h"
@@ -124,6 +125,11 @@ namespace SimCore
                 }
             }
 
+            EntityManager* getEntityManager()
+            {
+                return m_entityManager;
+            }
+
         protected:
             // TLE
             void initSatellites();
@@ -180,7 +186,7 @@ namespace SimCore
             // Inside the widget for executing compute shader
             void runCompute();
 
-            void checkLocalCache();
+            void checkLocalCache (const QString& groupKey = "STARLINK");
 
         public slots:
             void resetView()

@@ -15,7 +15,10 @@ namespace Space
     class Satellite : public SimCore::BaseEntity
     {
         public:
-            Satellite (const QString& name, const std::string& tle1, const std::string& tle2);
+            // Update constructor to accept the group key
+            Satellite (const QString& name, const std::string& tle1, const std::string& tle2, const QString& group);
+            
+            QString getGroup() const { return m_group; }
 
             // From BaseEntity
             void updatePhysics (qint64 msecs, float liveOffset) override;
@@ -28,11 +31,32 @@ namespace Space
 
             void initSatellites();
 
+            static int getTleErrors()
+            {
+                return tleErrors;
+            }
+
+            static void resetTleErrors()
+            {
+                ACE_GUARD(ACE_Thread_Mutex, ace_mon, lock_);
+                tleErrors = 0;
+            }
+             
+            QString getNoradId() const
+            {
+                return m_noradId;
+            }
+            
+            static ACE_Thread_Mutex lock_;
+
         private:
             QString m_name;
+            QString m_noradId;
             std::unique_ptr<libsgp4::SGP4> m_propagator;
             QVector3D m_currentPos;
             mutable ACE_Thread_Mutex m_posLock;
             std::atomic<int> m_updateCount{0};
+            QString m_group;
+            static int tleErrors;
     };
 } // namespace SimCore::Space

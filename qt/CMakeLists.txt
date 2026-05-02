@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
-project (LegacyGLApp VERSION 1.2 LANGUAGES CXX)
+project (LegacyGLApp VERSION 1.2 LANGUAGES CXX HIP)
+
+list (APPEND CMAKE_PREFIX_PATH ${HIP_PATH})
 
 set (CMAKE_AUTOMOC ON)
 
@@ -56,6 +58,7 @@ find_package (OpenGL REQUIRED)
 # Force standard C++ for Qt6
 set (CMAKE_CXX_STANDARD 17)
 set (CMAKE_CXX_STANDARD_REQUIRED ON)
+
 
 # Enable Qt's automatic meta-object, UI, and resource compilers
 set (CMAKE_AUTOMOC ON)

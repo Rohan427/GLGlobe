@@ -4,6 +4,7 @@
 #include "BaseEntity.hxx"
 #include <vector>
 #include <atomic>
+#include <algorithm>
 
 namespace SimCore
 {
@@ -20,6 +21,8 @@ namespace SimCore
             std::atomic<int> m_threadIndexer {0};
             ACE_Barrier* m_barrier = nullptr;
             int m_numThreads;
+
+            std::unordered_set<QString> m_activeIds; // Fast lookup for duplicates
 
         public:
             static EntityManager* instance();
@@ -63,8 +66,8 @@ namespace SimCore
                     if (m_vectorLock.tryacquire() == 0)
                     { 
                         for (size_t i = (size_t)localThreadId; i < m_entities.size(); i += 32)
-                    {
-                            if (m_done) break;
+                        {
+//                            if (m_done) break;
                             m_entities[i]->updatePhysics (now, Globe::m_liveOffset);
                         }
 
@@ -91,10 +94,10 @@ namespace SimCore
 
             // Static helper for the parsing thread
             static void* parsingTask (void* arg);
-            void addBatch (const std::vector<BaseEntity*>& newEntities);
-
+            void addBatch (const std::vector<BaseEntity*>&& newEntities);
+            void removeByGroup (const QString& groupKey);
         
         public slots: // Or just public:
-            void processTleData (const QString& data);
+            void processTleData (const QString& data, const QString& group);
     };
 }

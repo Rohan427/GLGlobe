@@ -16,43 +16,51 @@ namespace SimCore
     void EntityManager::onDataReceived (const QString& data)
     {
         // Spawn a dedicated, detached thread just for the heavy parsing
-        ACE_Thread_Manager::instance()->spawn (
-                                               (ACE_THR_FUNC)EntityManager::parsingTask, 
+        ACE_Thread_Manager::instance()->spawn ((ACE_THR_FUNC)EntityManager::parsingTask, 
                                                new QString (data), // Pass the data heap-allocated
                                                THR_DETACHED
                                               );
     }
     
-    void EntityManager::processTleData (const QString& info)
+    void EntityManager::processTleData (const QString& info, const QString& group)
     {
-        std::cout << "Parsing TLE data..." << std::endl;
-        
         if (info.startsWith ("FILE_READY:"))
         {
-            QString fileName = info.mid (11);
-            
-            // Use a dedicated ACE task to read the file
-            ACE_Thread_Manager::instance()->spawn ((ACE_THR_FUNC) EntityManager::fileReaderTask, 
-                                                   new QString (fileName), 
-                                                   THR_DETACHED
+            // 1. USE THE FILE READER TASK
+            // This task opens the file path (info.mid(11)) and reads the lines
+            auto* data = new FileTaskData { info.mid(11), group };
+            ACE_Thread_Manager::instance()->spawn ((ACE_THR_FUNC)EntityManager::fileReaderTask, 
+                                                   data, 
+                                                   THR_DETACHED | THR_NEW_LWP
+                                                  );
+        }
+        else
+        {
+            // 2. USE THE PARSING TASK
+            // This task treats 'info' as the raw TLE text block
+            auto* data = new ParsingTaskData { info, group };
+            ACE_Thread_Manager::instance()->spawn ((ACE_THR_FUNC)EntityManager::parsingTask, 
+                                                   data, 
+                                                   THR_DETACHED | THR_NEW_LWP
                                                   );
         }
     }
 
+
     // Static helper for the dedicated parsing thread
     void* EntityManager::parsingTask (void* arg)
     {
-        if (MainWindow::instance())
-        {
-            MainWindow::instance()->logMessage ("Starting parsing task...");
-        }
+        auto* taskData = static_cast<ParsingTaskData*> (arg);
+        QString group = taskData->group;
+        QString rawData = taskData->data;
 
-        std::cout << "Starting parsing task..." << std::endl;
-
-        QString* rawData = static_cast<QString*> (arg);
+        SIM_LOG (LM_DEBUG, "EntityManager::parsingTask: Starting parsing task...");
         
         // Split by any newline variation (\r\n, \n, \r)
-        QStringList lines = rawData->split (QRegularExpression ("(\r\n|\n|\r)"), Qt::SkipEmptyParts);
+        //QStringList lines = rawData.split('\n', Qt::SkipEmptyParts);
+        QStringList lines = rawData.split (QRegularExpression ("(\r\n|\n|\r)"), Qt::SkipEmptyParts);
+
+        std::cout << "Total Line: " << lines.size() << std::endl;
         
         std::vector<BaseEntity*> newSats;
         int parsedCount = 0;
@@ -64,6 +72,8 @@ namespace SimCore
             QString l1 = lines[i+1];
             QString l2 = lines[i+2];
 
+            std::cout << "Name: " << name.toStdString() << ", L1: " << l1.toStdString() << ", L2: " << l2.toStdString() << std::endl;
+
             // Check if l1 starts with '1 ' and l2 starts with '2 '
             // This validates we haven't lost our place in the 3-line sequence
             if (l1.startsWith ("1 ") && l2.startsWith ("2 "))
@@ -74,24 +84,21 @@ namespace SimCore
 
                 try
                 {
-                    auto* sat = new Space::Satellite (name, line1, line2);
+                    auto* sat = new Space::Satellite (name, line1, line2, group);
                     newSats.push_back (sat);
                     parsedCount++;
                 }
                 catch (...)
                 {
-                    if (MainWindow::instance())
-                    {
-                        MainWindow::instance()->logMessage ("Skipping malformed satellite.");
-                    }
-
-                    std::cout << "Skipping malformed satellite." << std::endl;
+                    SIM_LOG (LM_WARNING, "EntityManager::parsingTask: Skipping malformed satellite.");
                 }
 
                 i += 3; // Move to next triplet
             }
             else
             {
+                std::cout << "OUT OF SYNC!" <<std::endl;
+
                 // We are out of sync! Move forward one line at a time until we find a '1 '
                 i++; 
             }
@@ -99,149 +106,132 @@ namespace SimCore
 
         if (EntityManager::instance())
         {
-            EntityManager::instance()->addBatch (newSats);
+            EntityManager::instance()->addBatch (std::move (newSats));
         }
-
-        std::cout << "SUCCESS: Parsed " << parsedCount << " satellites." << std::endl;
-
-        if (MainWindow::instance())
+        else
         {
-            MainWindow::instance()->logMessage (QString ("SUCCESS: Parsed %1 %2").arg (parsedCount).arg ("satellites."));
+            std::cout << "EntityManager::parsingTask: New EntityManager is null" << std::endl;
         }
 
-        delete rawData;
+//        SIM_LOG (LM_INFO, QString ("SUCCESS: Parsed %1 %2").arg (parsedCount).arg ("satellites."));
 
         return nullptr;
     }
 
-    void EntityManager::addBatch (const std::vector<BaseEntity*>& newEntities)
+    void EntityManager::addBatch (const std::vector<BaseEntity*>&& newEntities)
     {
-
-        SIM_LOG ("Adding batch");
+        std::cout << "EntityManager::addBatch: Adding batch of " << newEntities.size() << " entities" << std::endl;
 
         if (newEntities.empty())
         {
-            SIM_LOG ("No new entities");
-
             return;
         }
-        else
+
+        if (!EntityManager::instance())
         {
-            SIM_LOG ((QString ("Entities to parse: %1").arg (newEntities.size())));
+            std::cout << "EntityManager::addBatch: Entity manager is null" << std::endl;
+            return;
         }
 
-        SIM_LOG ("Lock vector and load it");
         {
             // Lock the vector once for the whole batch
             ACE_GUARD (ACE_Thread_Mutex, mon, m_vectorLock);
-            
-            SIM_LOG ("Reserve entity memory");
-            // Use reserve to prevent multiple reallocations
-            m_entities.reserve (m_entities.size() + newEntities.size());
 
-            SIM_LOG ("Copy entity data");
-            // Manual copy to catch bad pointers
             for (auto* entity : newEntities)
             {
-                if (entity)
+                auto* sat = static_cast<Space::Satellite*>(entity);
+                QString id = sat->getNoradId();
+
+                if (m_activeIds.find (id) == m_activeIds.end())
                 {
-                    m_entities.push_back (entity);
+                    m_activeIds.insert (id);
+                    m_entities.push_back (sat);
+                }
+                else
+                {
+                    std::cout << "SAT exists, skip it" << std::endl;
+                    delete sat; // Already exists, discard the duplicate
                 }
             }
+            
+            // Use reserve to prevent multiple reallocations
+            m_entities.reserve (m_entities.size() + newEntities.size());
+            m_entities.insert (m_entities.end(), std::make_move_iterator (newEntities.begin()), std::make_move_iterator (newEntities.end()));
         } // ACE_GUARD (ACE_Thread_Mutex, mon, m_vectorLock);
 
-        SIM_LOG ((QString ("Batch added: %1 new objects registered.").arg (newEntities.size())));
+        std::cout << "EntityManager::addBatch complete" << std::endl;
     }
 
     void* EntityManager::fileReaderTask (void* arg)
     {
-        QString* fileName = static_cast<QString*> (arg);
+        // 1. Capture and wrap in a smart pointer immediately for safety
+        std::unique_ptr<FileTaskData> data (static_cast<FileTaskData*> (arg));
 
-        if (MainWindow::instance())
-        {
-            MainWindow::instance()->logMessage (QString ("reading file %1").arg (fileName->toStdString()));
-        }
+        std::cout << "EntityManager::fileReaderTask: Reading file " << data->path.toStdString() << std::endl;
 
-        std::cout << QString ("Reading file %1").arg (fileName->toStdString()).toStdString() << std::endl;
+        if (!data) return nullptr;
 
-        QFile file (*fileName);
+        QFile file (data->path);
 
-        if (MainWindow::instance())
-        {
-            MainWindow::instance()->logMessage (QString ("Opening file %1").arg (fileName->toStdString()));
-        }
-
-        std::cout << QString ("Opening file %1").arg (fileName->toStdString()).toStdString() << std::endl;
-        
-        if (!file.open (QIODevice::ReadOnly | QIODevice::Text))
-        {
-            delete fileName;
-
-            return nullptr;
-        }
+        if (!file.open (QIODevice::ReadOnly | QIODevice::Text)) return nullptr;
 
         QTextStream in (&file);
         std::vector<BaseEntity*> batch;
         
-        // Local buffers to avoid excessive allocations
-        QString name, l1, l2;
-        
-        if (MainWindow::instance())
-        {
-            MainWindow::instance()->logMessage (QString ("Parsing file %1 TLEs").arg (fileName->toStdString()));
-        }
-
-        std::cout << QString ("Parsing file %1 TLEs").arg (fileName->toStdString()).toStdString() << std::endl;
-
         while (!in.atEnd())
         {
-            name = in.readLine().trimmed();
-            l1 = in.readLine();
-            l2 = in.readLine();
+            QString name = in.readLine().trimmed();
 
-            if (l1.startsWith ("1 ") && l2.startsWith ("2 "))
+            if (name.isEmpty()) continue;
+
+            QString l1 = in.readLine().trimmed();
+            QString l2 = in.readLine().trimmed();
+
+            if (l1.length() >= 69 && l2.length() >= 69 && l1.startsWith("1 ") && l2.startsWith ("2 "))
             {
-                // Padding logic to ensure libsgp4 doesn't throw TleException
+                // Force exactly 69 characters by padding with spaces
                 std::string line1 = l1.leftJustified (69, ' ').left (69).toStdString();
                 std::string line2 = l2.leftJustified (69, ' ').left (69).toStdString();
 
-                try
-                {
-                    batch.push_back (new Space::Satellite (name, line1, line2));
-                }
-                catch (...)
-                {
-                    if (MainWindow::instance())
-                    {
-                        MainWindow::instance()->logMessage ("Skipping bad TLEs.");
-                    }
+                if (line1[0] != '1' || line2[0] != '2') continue;
 
-                    std::cout << "Skipping bad TLEs." << std::endl;
+                try
+                {                    
+                    // Add to batch ONLY if the propagator initializes successfully
+                    batch.push_back (new Space::Satellite (name, line1, line2, data->group));
+                }
+                catch (const std::exception& e)
+                {
+                    SIM_LOG (LM_ERROR, QString ("Propagator init failed for %1: %2").arg (name).arg (e.what()));
                 }
             }
-            
-            // Performance: Every 1000 sats, drop them into the manager 
-            // so the globe starts populating while we read the rest.
+
             if (batch.size() >= 1000)
             {
-                EntityManager::instance()->addBatch (batch);
+                EntityManager::instance()->addBatch (std::move (batch));
                 batch.clear();
             }
         }
 
-        // Add any remaining sats
-        EntityManager::instance()->addBatch (batch);
+        if (!batch.empty())
+        {
+            EntityManager::instance()->addBatch (std::move (batch));
+        }
 
-        file.close();
-        delete fileName;
+        // THE HANDSHAKE: Before the unique_ptr 'data' is destroyed and the 
+        // thread stack is reclaimed, ensure the Manager is done.
+        {
+            ACE_GUARD_RETURN (ACE_Thread_Mutex, mon, EntityManager::instance()->m_vectorLock, nullptr);
+            // Simply acquiring the lock once here acts as a memory barrier
+        }
 
-        return nullptr;
+        std::cout << "Leaving EntityManager::fileReaderTask\n\n\n\n" << std::endl;
+        return nullptr; // data (unique_ptr) is deleted here automatically
     }
 
     void EntityManager::startSimulation (int numThreads)
     {
         s_instance = this;
-
         m_numThreads = numThreads;
 
         // 32 workers + 1 main thread = 33
@@ -252,8 +242,34 @@ namespace SimCore
         // It is a very fast "handshake," not a long-term freeze.
         m_barrier->wait();
 
+        SIM_LOG (LM_DEBUG, QString ("All %1 ACE threads synchronized and running.").arg (m_numThreads));
+    }
 
-        SIM_LOG (QString ("All %1 ACE threads synchronized and running.").arg (m_numThreads));
+    void EntityManager::removeByGroup (const QString& groupKey)
+    {
+        ACE_DEBUG((LM_INFO, ACE_TEXT("[TID:%t] Removing group: %s\n"), groupKey.toUtf8().constData()));
         
+        {
+            ACE_GUARD(ACE_Thread_Mutex, mon, m_vectorLock);
+            
+            // Remove-Erase idiom: Fast and thread-safe inside the lock
+            auto it = std::remove_if (m_entities.begin(), m_entities.end(), [&](BaseEntity* e)
+            {
+                auto* sat = static_cast<Space::Satellite*>(e);
+
+                if (sat && sat->getGroup() == groupKey)
+                {
+                    m_activeIds.erase (sat->getNoradId()); // Remove from set
+                    delete sat;                            // Free memory
+                    return true;
+                }
+
+                return false;
+            });
+
+            m_entities.erase (it, m_entities.end());
+        }
+
+        SIM_LOG (LM_INFO, QString ("Removed group %1. Current count: %2").arg (groupKey).arg (m_entities.size()));
     }
 }

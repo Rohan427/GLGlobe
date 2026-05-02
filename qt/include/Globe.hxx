@@ -4,6 +4,19 @@
 #include <QOpenGLShaderProgram>
 #include <QPainter>
 
+struct ParsingTaskData
+{
+    QString data;
+    QString group;
+};
+
+
+struct FileTaskData
+{
+    QString path;
+    QString group;
+};
+
 namespace Globe
 {
     //class Globe
@@ -27,6 +40,7 @@ namespace Globe
             inline static const int MAX_THREADS = 32;
             inline static const QString DATA_DIR_PATH = "data";
             inline static const QString DATA_FILE_SAT_SUFFIX = "sat.tle";
+            inline static const QString CELESTRAK_URL = "https://celestrak.org/NORAD/elements/gp.php?";
 
             // Shared matrix variables
             inline QMatrix4x4 modelMatrix;

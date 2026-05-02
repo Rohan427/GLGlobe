@@ -21,6 +21,7 @@
 #include <ace/Barrier.h>
 #include <ace/Task.h>
 #include "ace/Thread.h"
+#include <ace/Log_Msg.h>
 #include "Utility.hxx"
 
 //#include "MainWindow.hxx"
