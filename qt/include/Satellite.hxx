@@ -17,6 +17,12 @@ namespace Space
         public:
             // Update constructor to accept the group key
             Satellite (const QString& name, const std::string& tle1, const std::string& tle2, const QString& group);
+
+            ~Satellite()
+            {
+                m_propagator.reset();
+            }
+
             
             QString getGroup() const { return m_group; }
 

@@ -13,7 +13,7 @@ namespace Space
         m_group = group;
         m_noradId = QString::fromStdString (tle1.substr (2, 5));
 
-        std::cout << "Created new satellite " << m_noradId.toStdString() << std::endl;
+//        std::cout << "Created new satellite " << m_noradId.toStdString() << std::endl;
     }
 
     void Satellite::updatePhysics (qint64 msecs, float liveOffset)
@@ -22,7 +22,7 @@ namespace Space
         {
 //            std::cout << "No propagator" << std::endl;
 
-            SIM_LOG (LM_CRITICAL, "No propagator");
+//            SIM_LOG (LM_CRITICAL, "No propagator");
 
             return;
         }

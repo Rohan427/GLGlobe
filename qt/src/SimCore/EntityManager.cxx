@@ -4,7 +4,9 @@
 
 namespace SimCore
 {
-    ACE_Thread_Mutex EntityManager::m_vectorLock;
+    ACE_Thread_Mutex SimCore::EntityManager::m_vectorLock;
+
+    bool EntityManager::m_updatingEntities = false;
 
     EntityManager* EntityManager::s_instance = nullptr;
 
@@ -26,7 +28,9 @@ namespace SimCore
     {
         if (info.startsWith ("FILE_READY:"))
         {
-            // 1. USE THE FILE READER TASK
+ //           std::cout << "using file reader task" << std::endl;
+
+            // USE THE FILE READER TASK
             // This task opens the file path (info.mid(11)) and reads the lines
             auto* data = new FileTaskData { info.mid(11), group };
             ACE_Thread_Manager::instance()->spawn ((ACE_THR_FUNC)EntityManager::fileReaderTask, 
@@ -36,7 +40,10 @@ namespace SimCore
         }
         else
         {
-            // 2. USE THE PARSING TASK
+
+ //           std::cout << "using parsing task" << std::endl;
+
+            // USE THE PARSING TASK
             // This task treats 'info' as the raw TLE text block
             auto* data = new ParsingTaskData { info, group };
             ACE_Thread_Manager::instance()->spawn ((ACE_THR_FUNC)EntityManager::parsingTask, 
@@ -54,13 +61,13 @@ namespace SimCore
         QString group = taskData->group;
         QString rawData = taskData->data;
 
-        SIM_LOG (LM_DEBUG, "EntityManager::parsingTask: Starting parsing task...");
+//        SIM_LOG (LM_DEBUG, "EntityManager::parsingTask: Starting parsing task...");
         
         // Split by any newline variation (\r\n, \n, \r)
         //QStringList lines = rawData.split('\n', Qt::SkipEmptyParts);
         QStringList lines = rawData.split (QRegularExpression ("(\r\n|\n|\r)"), Qt::SkipEmptyParts);
 
-        std::cout << "Total Line: " << lines.size() << std::endl;
+//        std::cout << "Total Line: " << lines.size() << std::endl;
         
         std::vector<BaseEntity*> newSats;
         int parsedCount = 0;
@@ -72,7 +79,7 @@ namespace SimCore
             QString l1 = lines[i+1];
             QString l2 = lines[i+2];
 
-            std::cout << "Name: " << name.toStdString() << ", L1: " << l1.toStdString() << ", L2: " << l2.toStdString() << std::endl;
+//            std::cout << "Name: " << name.toStdString() << ", L1: " << l1.toStdString() << ", L2: " << l2.toStdString() << std::endl;
 
             // Check if l1 starts with '1 ' and l2 starts with '2 '
             // This validates we haven't lost our place in the 3-line sequence
@@ -90,7 +97,7 @@ namespace SimCore
                 }
                 catch (...)
                 {
-                    SIM_LOG (LM_WARNING, "EntityManager::parsingTask: Skipping malformed satellite.");
+//                    SIM_LOG (LM_WARNING, "EntityManager::parsingTask: Skipping malformed satellite.");
                 }
 
                 i += 3; // Move to next triplet
@@ -110,7 +117,7 @@ namespace SimCore
         }
         else
         {
-            std::cout << "EntityManager::parsingTask: New EntityManager is null" << std::endl;
+//            std::cout << "EntityManager::parsingTask: New EntityManager is null" << std::endl;
         }
 
 //        SIM_LOG (LM_INFO, QString ("SUCCESS: Parsed %1 %2").arg (parsedCount).arg ("satellites."));
@@ -120,25 +127,25 @@ namespace SimCore
 
     void EntityManager::addBatch (const std::vector<BaseEntity*>&& newEntities)
     {
-        std::cout << "EntityManager::addBatch: Adding batch of " << newEntities.size() << " entities" << std::endl;
+//        std::cout << "EntityManager::addBatch: Adding batch of " << newEntities.size() << " entities" << std::endl;
 
         if (newEntities.empty())
         {
-            return;
         }
 
         if (!EntityManager::instance())
         {
-            std::cout << "EntityManager::addBatch: Entity manager is null" << std::endl;
             return;
         }
 
         {
             // Lock the vector once for the whole batch
-            ACE_GUARD (ACE_Thread_Mutex, mon, m_vectorLock);
+            ACE_GUARD (ACE_Thread_Mutex, mon, EntityManager::m_vectorLock);
 
             for (auto* entity : newEntities)
             {
+                if (!entity) continue;
+
                 auto* sat = static_cast<Space::Satellite*>(entity);
                 QString id = sat->getNoradId();
 
@@ -149,17 +156,12 @@ namespace SimCore
                 }
                 else
                 {
-                    std::cout << "SAT exists, skip it" << std::endl;
-                    delete sat; // Already exists, discard the duplicate
+                    delete entity; // Already exists, discard the duplicate
                 }
             }
-            
-            // Use reserve to prevent multiple reallocations
-            m_entities.reserve (m_entities.size() + newEntities.size());
-            m_entities.insert (m_entities.end(), std::make_move_iterator (newEntities.begin()), std::make_move_iterator (newEntities.end()));
         } // ACE_GUARD (ACE_Thread_Mutex, mon, m_vectorLock);
 
-        std::cout << "EntityManager::addBatch complete" << std::endl;
+//        std::cout << "EntityManager::addBatch complete" << std::endl;
     }
 
     void* EntityManager::fileReaderTask (void* arg)
@@ -167,7 +169,7 @@ namespace SimCore
         // 1. Capture and wrap in a smart pointer immediately for safety
         std::unique_ptr<FileTaskData> data (static_cast<FileTaskData*> (arg));
 
-        std::cout << "EntityManager::fileReaderTask: Reading file " << data->path.toStdString() << std::endl;
+//        std::cout << "EntityManager::fileReaderTask: Reading file " << data->path.toStdString() << std::endl;
 
         if (!data) return nullptr;
 
@@ -202,7 +204,7 @@ namespace SimCore
                 }
                 catch (const std::exception& e)
                 {
-                    SIM_LOG (LM_ERROR, QString ("Propagator init failed for %1: %2").arg (name).arg (e.what()));
+//                    SIM_LOG (LM_ERROR, QString ("Propagator init failed for %1: %2").arg (name).arg (e.what()));
                 }
             }
 
@@ -221,11 +223,11 @@ namespace SimCore
         // THE HANDSHAKE: Before the unique_ptr 'data' is destroyed and the 
         // thread stack is reclaimed, ensure the Manager is done.
         {
-            ACE_GUARD_RETURN (ACE_Thread_Mutex, mon, EntityManager::instance()->m_vectorLock, nullptr);
+            ACE_GUARD_RETURN (ACE_Thread_Mutex, mon, EntityManager::m_vectorLock, nullptr);
             // Simply acquiring the lock once here acts as a memory barrier
         }
 
-        std::cout << "Leaving EntityManager::fileReaderTask\n\n\n\n" << std::endl;
+//        std::cout << "Leaving EntityManager::fileReaderTask\n\n\n\n" << std::endl;
         return nullptr; // data (unique_ptr) is deleted here automatically
     }
 
@@ -247,20 +249,25 @@ namespace SimCore
 
     void EntityManager::removeByGroup (const QString& groupKey)
     {
-        ACE_DEBUG((LM_INFO, ACE_TEXT("[TID:%t] Removing group: %s\n"), groupKey.toUtf8().constData()));
+        std::vector<BaseEntity*> toDelete;
+
+//        ACE_DEBUG((LM_INFO, ACE_TEXT("[TID:%t] Removing group: %s\n"), groupKey.toUtf8().constData()));
+        std::cout << "removing group " << groupKey.toUtf8().constData() << std::endl;
         
         {
-            ACE_GUARD(ACE_Thread_Mutex, mon, m_vectorLock);
+            ACE_GUARD (ACE_Thread_Mutex, mon, EntityManager::m_vectorLock);
             
+//            std::cout << "ACE_GUARD lock" << std::endl;
+
             // Remove-Erase idiom: Fast and thread-safe inside the lock
             auto it = std::remove_if (m_entities.begin(), m_entities.end(), [&](BaseEntity* e)
             {
-                auto* sat = static_cast<Space::Satellite*>(e);
+                auto* sat = static_cast<Space::Satellite*> (e);
 
                 if (sat && sat->getGroup() == groupKey)
                 {
                     m_activeIds.erase (sat->getNoradId()); // Remove from set
-                    delete sat;                            // Free memory
+                    toDelete.push_back (e);
                     return true;
                 }
 
@@ -269,6 +276,21 @@ namespace SimCore
 
             m_entities.erase (it, m_entities.end());
         }
+
+ //       std::cout << "ACE_GUARD released" << std::endl;
+
+  //      std::cout << "free memory" << std::endl;
+
+        // Free memory
+        for (auto* e : toDelete)
+        {
+            if (!e) continue;
+ //           std::cout << "delete e" << std::endl;
+            delete e; 
+        }
+
+ //        std::cout << "free completed" << std::endl;
+        
 
         SIM_LOG (LM_INFO, QString ("Removed group %1. Current count: %2").arg (groupKey).arg (m_entities.size()));
     }

@@ -12,6 +12,7 @@ namespace SimCore
 
         // Initialize entity manager
         m_entityManager = new SimCore::EntityManager();
+        m_entityManager->m_updatingEntities = false;
 
         int numThreads = std::thread::hardware_concurrency(); 
         if (numThreads == 0) numThreads = 16; // Fallback
@@ -29,6 +30,7 @@ namespace SimCore
         initializeOpenGLFunctions(); // Required in Qt to access gl* calls
 
         // Initialize satellite VBO
+        m_satPositions.reserve (MAX_SATELLITES * sizeof (QVector3D));
         glGenVertexArrays (1, &m_satVao);
         glGenBuffers (1, &m_satVbo);
 
@@ -70,7 +72,7 @@ namespace SimCore
 
         if (!m_program->link())
         {
-            SIM_LOG (LM_INFO, QString ("Shader Linker Error: %1").arg (m_program->log()));
+            SIM_LOG (LM_ERROR, QString ("Shader Linker Error: %1").arg (m_program->log()));
         }
 
         generateSphere (Globe::globeRadius, Globe::globeSectors, Globe::globeStacks);
@@ -96,7 +98,7 @@ namespace SimCore
         bumpTextureID =  Globe::textureMap["earthbump16k"];
         //textureID = textureMap["earth16k"];
 
-        std::cout << "Texture ID is " << textureID << std::endl;
+//        std::cout << "Texture ID is " << textureID << std::endl;
 
         initializeGlobePosition();
 
@@ -118,7 +120,7 @@ namespace SimCore
         //Connect NOW that we know m_entityManager is not null
         bool success = connect (m_satelliteSource, &Network::BaseDataSource::dataReceived,
                                 m_entityManager, &SimCore::EntityManager::processTleData,
-                                Qt::QueuedConnection);
+                                Qt::UniqueConnection); // <--- This prevents the signal from firing twice
         
         if (success)
         {
@@ -126,22 +128,23 @@ namespace SimCore
         }
 
         // Activate the 32 ACE threads
-        m_entityManager->startSimulation (numThreads);
+        m_entityManager->startSimulation (32);
 
-        // Trigger an update
-        // Schedule the cache check for 500ms after the app starts
-        // This allows the GUI to "pop up" and the 7800 XT to warm up first.
-        SIM_LOG (LM_INFO, "Waiting on QT to start...");
-        QTimer::singleShot (500, this, [this]()
-        {
-            this->checkLocalCache();
-            SIM_LOG (LM_INFO, "Local cache check complete.");
-        });
+        //// Trigger an update
+        //// Schedule the cache check for 500ms after the app starts
+        //// This allows the GUI to "pop up" and the 7800 XT to warm up first.
+        //SIM_LOG (LM_INFO, "Waiting on QT to start...");
+        //QTimer::singleShot (500, this, [this]()
+        //{
+        //    this->checkLocalCache();
+        //    SIM_LOG (LM_INFO, "Local cache check complete.");
+        //});
     }
 
 
     void MyGLWidget::paintGL() 
     {
+//        std::cout << "paintGL entered" << std::endl;
         // Compute shader code
     //    m_computeProgram->bind();
     //    m_computeProgram->setUniformValue ("time", (float)timer.elapsed() / 1000.0f);
@@ -248,56 +251,81 @@ namespace SimCore
         // 1. Gather latest positions from ACE threads
         if (setActiveShader ("Satellites"))
         {
-            m_satPositions.clear();
+            int activeCount = 0;
 
-            int count = 0;
-
-            for (auto* entity : m_entityManager->getEntities()) 
+            if (EntityManager::m_vectorLock.tryacquire()  == 0) // Try and grab the ACE thread mutex
             {
-                QVector3D p = entity->getPosition();
+                m_satPositions.clear();
 
-//                std::cout << count << ": " << p.x() << ", " << p.y() << ", " << p.z() << std::endl;
+                if (m_satPositions.capacity() >= (m_entityManager->getEntities().size() * sizeof (QVector3D)))
+                {
+                    std::vector<BaseEntity*> entities = m_entityManager->getEntities();
 
-                m_satPositions.push_back (p);
-                count++;
+                    for (auto* entity : entities) 
+                    {
+                        if (entity)
+                        {
+                            m_satPositions.push_back (entity->getPosition());
+                        }
+                    }
+                        
+                    activeCount = m_satPositions.size();
+
+ //                   std::cout << "Number of satellites:" << activeCount << std::endl;
+                }
+
+                EntityManager::m_vectorLock.release();
+            }                
+
+            if (activeCount > 0)
+            {
+//                std::cout << "rendering satellites" << std::endl;
+
+                // 2. Stream to GPU using Orphaning
+                glBindBuffer (GL_ARRAY_BUFFER, m_satVbo);
+
+                // Orphan the buffer: tell the driver we don't care about old data
+                glBufferData (GL_ARRAY_BUFFER, MAX_SATELLITES * sizeof (QVector3D), nullptr, GL_STREAM_DRAW);
+
+                // Upload new data
+                GLsizeiptr totalBytes = m_satPositions.size() * sizeof (QVector3D);
+                glBufferSubData (GL_ARRAY_BUFFER, 0, totalBytes, m_satPositions.data());
+    //            glBufferSubData (GL_ARRAY_BUFFER, 0, m_satPositions.size() * sizeof (QVector3D), m_satPositions.data());
+
+                // 3. Draw all satellites in ONE call
+                m_program->bind();
+                m_program->setUniformValue ("mvp", mvp); //projection * view * model);
+                m_program->setUniformValue ("satColor", QVector3D (1.0f, 0.0f, 1.0f)); // Magenta
+
+                glEnable (GL_PROGRAM_POINT_SIZE); // Enables gl_PointSize from shader
+                glEnable (GL_BLEND);
+                glBlendFunc (GL_SRC_ALPHA, GL_ONE); // Additive blend makes them "glow"
+                
+                glBindVertexArray (m_satVao);
+
+                // Use GL_POINTS for massive performance on RDNA3
+    //            glDisable(GL_DEPTH_TEST);
+                glDepthFunc (GL_LEQUAL); 
+
+    //            std::cout << "Drawing " << m_satPositions.size() << " sats" << std::endl;
+
+                glDrawArrays (GL_POINTS, 0, (GLsizei)m_satPositions.size());
+
+                glBindVertexArray (0);
+                glDisable (GL_BLEND);
+
+                m_program->release();
+
+//                std::cout << "     rendering done" << std::endl;
             }
-
-            // 2. Stream to GPU using Orphaning
-            glBindBuffer (GL_ARRAY_BUFFER, m_satVbo);
-
-            // Orphan the buffer: tell the driver we don't care about old data
-            glBufferData (GL_ARRAY_BUFFER, MAX_SATELLITES * sizeof (QVector3D), nullptr, GL_STREAM_DRAW);
-
-            // Upload new data
-            GLsizeiptr totalBytes = m_satPositions.size() * sizeof (QVector3D);
-            glBufferSubData (GL_ARRAY_BUFFER, 0, totalBytes, m_satPositions.data());
-//            glBufferSubData (GL_ARRAY_BUFFER, 0, m_satPositions.size() * sizeof (QVector3D), m_satPositions.data());
-
-            // 3. Draw all satellites in ONE call
-            m_program->bind();
-            m_program->setUniformValue ("mvp", mvp); //projection * view * model);
-            m_program->setUniformValue ("satColor", QVector3D (1.0f, 0.0f, 1.0f)); // Magenta
-
-            glEnable (GL_PROGRAM_POINT_SIZE); // Enables gl_PointSize from shader
-            glEnable (GL_BLEND);
-            glBlendFunc (GL_SRC_ALPHA, GL_ONE); // Additive blend makes them "glow"
-            
-            glBindVertexArray (m_satVao);
-
-            // Use GL_POINTS for massive performance on RDNA3
-//            glDisable(GL_DEPTH_TEST);
-            glDepthFunc(GL_LEQUAL); 
-
-//            std::cout << "Drawing " << m_satPositions.size() << " sats" << std::endl;
-
-            glDrawArrays (GL_POINTS, 0, (GLsizei)m_satPositions.size());
-
-            glBindVertexArray (0);
-            glDisable (GL_BLEND);
-
-            m_program->release();
+            else
+            {
+//                std::cout << "Skipping frame" << std::endl;
+            }
         }
-        /*********************** END SATILLITES ********************8*/
+        /*********************** END SATILLITES *********************/
+
+
         // FPS Logic
         static int frames = 0;
         static QElapsedTimer fpsTimer;
@@ -949,7 +977,7 @@ namespace SimCore
                 prog->link())
         {
             Globe::m_shaders.insert (name, prog);
-            SIM_LOG (LM_INFO, QString ("Successfully registered shader: %1").arg (name.toStdString()));
+//            SIM_LOG (LM_INFO, QString ("Successfully registered shader: %1").arg (name.toStdString()));
         }
         else
         {
@@ -993,7 +1021,7 @@ namespace SimCore
             return;
         }
 
-        SIM_LOG (LM_INFO, "Successfully opened " + filename);
+//        SIM_LOG (LM_INFO, "Successfully opened " + filename);
 
         QTextStream in (&file);
         // Skip header line if your CSV has one
@@ -1019,7 +1047,7 @@ namespace SimCore
 
         file.close();
 
-       SIM_LOG (LM_INFO, QString ("Loaded %1 cities.").arg (Globe::m_capitals.size()));
+//       SIM_LOG (LM_INFO, QString ("Loaded %1 cities.").arg (Globe::m_capitals.size()));
     /*
         m_capitals =
         {
@@ -1052,6 +1080,8 @@ namespace SimCore
         {
             std::cout << "Files found..." << std::endl;
 
+            QFileInfo latest = files.first();
+
             // Check for old files and delete them
             for (const QFileInfo& info : files)
             {
@@ -1062,14 +1092,14 @@ namespace SimCore
                 }
             }
 
-            std::cout << "Loading file..." << std::endl;
+//            std::cout << "Loading file..." << std::endl;
 
-            QFileInfo latest = files.first();
+            latest = files.first();
             qint64 secsOld = latest.lastModified().toUTC().secsTo (QDateTime::currentDateTimeUtc());
 
             if (secsOld < 7200)
             { // 2 Hours = 7200 seconds
-                std::cout << "Using fresh local cache: " << latest.fileName().toStdString() << std::endl;
+//                std::cout << "Using fresh local cache: " << latest.fileName().toStdString() << std::endl;
 
                 m_entityManager->processTleData ("FILE_READY:" + latest.absoluteFilePath(), groupKey);
 
@@ -1077,7 +1107,7 @@ namespace SimCore
             }
         }
         
-        std::cout << "Requesting new data..." << std::endl;
+        SIM_LOG (LM_INFO, "Requesting new data...");
 
         // If no files or they are old, trigger a fresh download
         m_satelliteSource->requestGroup (groupKey);

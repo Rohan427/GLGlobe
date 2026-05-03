@@ -59,7 +59,7 @@ namespace Network
 
     void CelesTrakSource::requestGroup (const QString& groupKey)
     {
-        std::cout << "CelesTrakSource::requestGroup: Requesting group " << groupKey.toStdString() << std::endl;
+//        std::cout << "CelesTrakSource::requestGroup: Requesting group " << groupKey.toStdString() << std::endl;
 
         // 1. Build the path using the group key and current date/time
         QString fileName = QString ("data/satellites_%1_%2.tle")
@@ -71,7 +71,7 @@ namespace Network
         QString query = QString ("GROUP=%1&FORMAT=tle").arg (groupKey.toLower());
         QUrl url (baseUrl + query);
 
-        std::cout << "CelesTrakSource::requestGroup: URL is: " << url.toString().toUtf8().constData() << std::endl;
+//        std::cout << "CelesTrakSource::requestGroup: URL is: " << url.toString().toUtf8().constData() << std::endl;
 
         // 3. Kick off the download
         this->initiateDownload (url, fileName, groupKey);
@@ -79,7 +79,7 @@ namespace Network
 
     void CelesTrakSource::initiateDownload(const QUrl& url, const QString& localPath, const QString& groupKey)
     {
-        std::cout << "CelesTrakSource::initiateDownload: Initiating download " << groupKey.toStdString() << std::endl;
+//        std::cout << "CelesTrakSource::initiateDownload: Initiating download " << groupKey.toStdString() << std::endl;
 
         QNetworkRequest request (url);
         request.setHeader (QNetworkRequest::UserAgentHeader, "LegacyGLGlobe/1.0");
@@ -113,12 +113,12 @@ namespace Network
             
             if (reply->error() == QNetworkReply::NoError)
             {
-                std::cout << "Download Complete: %1" << std::endl;;
+                ACE_ERROR ((LM_ERROR, ACE_TEXT ("Download Complete")));
                 emit dataReceived ("FILE_READY:" + localPath, groupKey);
             }
             else
             {
-                std::cout << "Download failed" << std::endl;
+                ACE_ERROR ((LM_ERROR, ACE_TEXT ("Download failed")));
                 cacheFile->remove(); // Clean up the empty/broken file
             }
             

@@ -17,7 +17,6 @@ namespace SimCore
             std::vector<BaseEntity*> m_entities;
             bool m_done = false;
             qint64 m_currentTime;
-            static ACE_Thread_Mutex m_vectorLock; // Protects the vector itself
             std::atomic<int> m_threadIndexer {0};
             ACE_Barrier* m_barrier = nullptr;
             int m_numThreads;
@@ -25,6 +24,10 @@ namespace SimCore
             std::unordered_set<QString> m_activeIds; // Fast lookup for duplicates
 
         public:
+            static ACE_Thread_Mutex m_vectorLock; // Protects the vector itself
+            static bool m_updatingEntities;
+            /************* Functions ******************/
+
             static EntityManager* instance();
 
             void startSimulation (int numThreads);
@@ -56,7 +59,7 @@ namespace SimCore
             virtual int svc() override
             {
                 m_barrier->wait();
-                int localThreadId = m_threadIndexer.fetch_add(1) % 32;
+                int localThreadId = m_threadIndexer.fetch_add (1) % Globe::MAX_THREADS;
 
                 while (!m_done && !this->msg_queue()->deactivated())
                 {
@@ -65,10 +68,14 @@ namespace SimCore
                     // Use tryacquire() to prevent the "Mutex Storm" from blocking the GUI
                     if (m_vectorLock.tryacquire() == 0)
                     { 
-                        for (size_t i = (size_t)localThreadId; i < m_entities.size(); i += 32)
+                        for (size_t i = (size_t)localThreadId; i < m_entities.size(); i += Globe::MAX_THREADS)
                         {
-//                            if (m_done) break;
-                            m_entities[i]->updatePhysics (now, Globe::m_liveOffset);
+                            BaseEntity* entity = m_entities[i];
+
+                            if (!m_entities.empty() && entity)
+                            {
+                                m_entities[i]->updatePhysics (now, Globe::m_liveOffset);
+                            }
                         }
 
                         m_vectorLock.release(); 

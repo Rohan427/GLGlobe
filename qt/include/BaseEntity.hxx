@@ -1,5 +1,9 @@
 #pragma once
 
+#ifndef ACE_MT_SAFE
+#define ACE_MT_SAFE 1
+#endif
+
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>

@@ -102,6 +102,9 @@ set (CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../bin)
 set (CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../lib)
 set (CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/../lib)
 
+# Ensure ACE macros expand to real locks
+add_definitions (-DACE_HAS_THREADS -DACE_MT_SAFE=1)
+
 # Create the executable
 add_executable (LegacyGLApp ${SOURCES} ${HEADERS})
 

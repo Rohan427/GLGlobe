@@ -92,7 +92,7 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
         {
             if (checked)
             {
-                satelliteSource->requestGroup (groupKey);
+                this->glViewport->checkLocalCache (groupKey);
             }
             else
             {
@@ -101,6 +101,7 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
                 if (manager)
                 {
                     manager->removeByGroup (groupKey);
+//                    std::cout << "Group removed" << std::endl;
                 }
             }
         });

@@ -100,7 +100,7 @@ namespace SimCore
 
             GLuint m_satVao;
             GLuint m_satVbo;
-            std::vector<QVector3D> m_satPositions; // CPU staging buffer
+            std::vector<QVector3D> m_satPositions; // GPU staging buffer
 
             Network::CelesTrakSource* m_satelliteSource;
 
@@ -129,6 +129,8 @@ namespace SimCore
             {
                 return m_entityManager;
             }
+
+            void checkLocalCache (const QString& groupKey = "STARLINK");
 
         protected:
             // TLE
@@ -185,8 +187,6 @@ namespace SimCore
 
             // Inside the widget for executing compute shader
             void runCompute();
-
-            void checkLocalCache (const QString& groupKey = "STARLINK");
 
         public slots:
             void resetView()

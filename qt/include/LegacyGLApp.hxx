@@ -1,5 +1,9 @@
 #pragma once
 
+#ifndef ACE_MT_SAFE
+#define ACE_MT_SAFE 1
+#endif
+
 #include <QApplication>
 #include <QMouseEvent> // Fixes the "incomplete type" error for mouse
 #include <QKeyEvent>   // Fixes it for keyboard
