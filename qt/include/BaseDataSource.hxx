@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef BASDATASOURCE_HXX
+#define BASDATASOURCE_HXX
+
 #include <QObject>
 #include <QString>
 
@@ -27,3 +30,6 @@ namespace Network
     };
 
 } // namespace Network
+
+
+#endif //BASDATASOURCE_HXX

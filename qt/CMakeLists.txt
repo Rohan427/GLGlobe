@@ -81,6 +81,7 @@ set (SOURCES
     ${SOURCE_ROOT}/Space/Satellite.cxx
     ${SOURCE_ROOT}/SimCore/EntityManager.cxx
     ${SOURCE_ROOT}/Network/CelesTrakSource.cxx
+    ${SOURCE_ROOT}/Globe/FontManager.cxx
 )
 
 set (HEADERS
@@ -95,6 +96,7 @@ set (HEADERS
     ${HEADER_ROOT}/CelesTrakSource.hxx
     ${HEADER_ROOT}/Globe.hxx
     ${HEADER_ROOT}/BaseDataSource.hxx
+    ${HEADER_ROOT}/FontManager.hxx
 )
 
 # Define output folders

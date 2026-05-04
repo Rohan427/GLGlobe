@@ -1,5 +1,6 @@
 #include "MainWindow.hxx"
 #include "EntityManager.hxx"
+#include "MyGLWidget.hxx"
 
 
 using namespace SimCore;

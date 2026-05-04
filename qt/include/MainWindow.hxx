@@ -1,6 +1,8 @@
 #pragma once
 
-//#include "LegacyGLApp.hxx"
+#ifndef MAINWINDOW_HXX
+#define MAINWINDOW_HXX
+
 #include <QMainWindow>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -16,11 +18,12 @@
 #include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QNetworkRequest>
 #include <QtNetwork/QNetworkReply>
-#include "MyGLWidget.hxx"
 #include "CelesTrakSource.hxx"
 
 namespace SimCore
 {
+    class MyGLWidget;
+
     class MainWindow : public QMainWindow
     {
         Q_OBJECT
@@ -57,3 +60,5 @@ namespace SimCore
             }
     };
 } // namespace SimCore
+
+#endif // MAINWINDOW_HXX

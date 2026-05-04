@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef BASENTITY_HXX
+#define BASENTITY_HXX
+
 #ifndef ACE_MT_SAFE
 #define ACE_MT_SAFE 1
 #endif
@@ -47,3 +50,5 @@ namespace SimCore
             virtual QString getLabel() const = 0;
     };
 } // namespace SimCore
+
+#endif // BASENTITY_HXX

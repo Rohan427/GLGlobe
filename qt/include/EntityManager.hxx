@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef ENTITYMANAGER_HXX
+#define ENTITYMANAGER_HXX
+
 // SimCore/EntityManager.hxx
 #include "BaseEntity.hxx"
 #include <vector>
@@ -61,6 +64,19 @@ namespace SimCore
                 m_barrier->wait();
                 int localThreadId = m_threadIndexer.fetch_add (1) % Globe::MAX_THREADS;
 
+/*                  AFFINITY CODE IF I WANT TO USE IT
+                // 1. Determine which logical core this specific thread should live on
+                int threadIdx = m_threadIndexer.fetch_add(1) % 32;
+                
+                cpu_set_t cpuset;
+                CPU_ZERO(&cpuset);
+                CPU_SET(threadIdx, &cpuset);
+
+                // 2. Pin this ACE thread to a specific core
+                pthread_t current_thread = pthread_self();
+                pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
+*/
+
                 while (!m_done && !this->msg_queue()->deactivated())
                 {
                     qint64 now = QDateTime::currentDateTimeUtc().toMSecsSinceEpoch();
@@ -108,3 +124,5 @@ namespace SimCore
             void processTleData (const QString& data, const QString& group);
     };
 }
+
+#endif // ENTITYMANAGER_HXX

@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef UTILITY_HXX
+#define UTILITY_HXX
+
 #include <QtMath>
 #include <QVector3D>
 #include <QString>
@@ -10,9 +13,9 @@
     do { \
     QString qmsg = QString(msg); \
     /* Route ONLY high-priority logs to the GUI */ \
-        if (MainWindow::instance() && (level == LM_INFO || level == LM_ERROR || level == LM_CRITICAL \
+        if (SimCore::MainWindow::instance() && (level == LM_INFO || level == LM_ERROR || level == LM_CRITICAL \
          || level == LM_WARNING)) { \
-        MainWindow::instance()->logMessage(qmsg); \
+        SimCore::MainWindow::instance()->logMessage(qmsg); \
     } \
     /* Send EVERYTHING to the ACE logger (Terminal/File) */ \
     /* %T = Time, %t = Thread ID, %M = Priority Level Name */ \
@@ -54,3 +57,5 @@ namespace SimCore
     };
 
 } // namspace Utility
+
+#endif // UTILITY_HXX

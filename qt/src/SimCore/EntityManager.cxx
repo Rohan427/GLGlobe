@@ -238,7 +238,7 @@ namespace SimCore
 
         // 32 workers + 1 main thread = 33
         m_barrier = new ACE_Barrier (m_numThreads + 1); 
-        this->activate (THR_NEW_LWP | THR_JOINABLE, m_numThreads);
+        this->activate (THR_NEW_LWP | THR_JOINABLE | THR_BOUND, m_numThreads);
 
         // This blocks the MAIN thread until all numThreads workers hit their own wait()
         // It is a very fast "handshake," not a long-term freeze.

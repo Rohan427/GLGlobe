@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef SATELLITE_HXX
+#define SATELLITE_HXX
+
 #include "BaseEntity.hxx"
 #include "Utility.hxx"
 #include "Globe.hxx"
@@ -66,3 +69,5 @@ namespace Space
             static int tleErrors;
     };
 } // namespace SimCore::Space
+
+#endif // SATELLITE_HXX

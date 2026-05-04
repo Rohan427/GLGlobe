@@ -1,8 +1,14 @@
 #pragma once
 
+#ifndef GLOBE_HXX
+#define GLOBE_HXX
+
 #include <QElapsedTimer>
 #include <QOpenGLShaderProgram>
 #include <QPainter>
+#include <utility>
+#include <map>
+#include <string>
 
 struct ParsingTaskData
 {
@@ -35,12 +41,13 @@ namespace Globe
             inline static const float DEFAULT_MARKER_SIZE = 5.0f;
             inline static const float DEFAULT_ZOOM = 1.0F;
             inline static const QVector2D DEFAULT_OFFSET = QVector2D (0.0f, 0.0f);
-            inline static const float LABEL_HEIGHT_OFFSET = 0.0001f;
+            inline static const float LABEL_HEIGHT_OFFSET = 0.005f;
             inline static const int THREAD_SLEEP_TIME = 100000;  // 50ms tick
             inline static const int MAX_THREADS = 32;
             inline static const QString DATA_DIR_PATH = "data";
             inline static const QString DATA_FILE_SAT_SUFFIX = "sat.tle";
             inline static const QString CELESTRAK_URL = "https://celestrak.org/NORAD/elements/gp.php?";
+            inline static const QString FONT_PATH = "fonts";
 
             // Shared matrix variables
             inline QMatrix4x4 modelMatrix;
@@ -65,7 +72,7 @@ namespace Globe
             inline const int globeSectors = DEFAULT_SECTORS;
             inline const int globeStacks = DEFAULT_STACKS;
 
-            // Height of labels above the globe. Put labels above globe, but not too far or they will "slide" due
+            // Height of labels and points above the globe. Put labels above globe, but not too far or they will "slide" due
             // to perspective and zoom changes
             inline float cityLabelHeight = globeRadius + LABEL_HEIGHT_OFFSET;
 
@@ -75,9 +82,10 @@ namespace Globe
                 std::array<int, 2> large = {8192, 4096};
                 std::array<int, 2> medium = {6144, 3072};
                 std::array<int, 2> small = {4096, 2048};
+                std::array<int, 2> stdFont = {512, 512};
             };
 
-            inline std::map<std::string, QString> TextureFiles =
+            static inline std::map<std::string, QString> TextureFiles =
             {
                 {"simple", "textures/natural_earth.png"},                   // PLAIN_EARTH, 8K can be scaled to 6K or 4K
                 {"earth8k", "textures/1_earth_8k.jpg"},                     // EARTH_CL8K_DAY
@@ -91,6 +99,13 @@ namespace Globe
                 {"earthbump8k", "textures/elev_bump_8k.jpg"},               // EARTH8K_BUMP
                 {"earthbump16k", "textures/elev_bump_16k.jpg"}              // EARTH16k_BUMP
             };
+
+            static inline std::map<std::string, QString> FontFiles =
+            {
+                 {"arialFont", "fonts/arial.png"}                            // Arial font atlas
+            };
+
+            static inline std::vector<std::map<std::string, QString>> TextureList = {TextureFiles, FontFiles};
 
             inline texSizes mapSizes;
 
@@ -110,6 +125,7 @@ namespace Globe
             // City handling
             struct City
             {
+                QVector3D position;
                 QString name;
                 float lat;
                 float lon;
@@ -119,5 +135,17 @@ namespace Globe
             inline std::vector<City> m_capitals;
             inline const City* m_selectedCity = nullptr;
             inline bool m_showCities = true;
+            inline int m_cityCount;
+
+            struct LabelVertex
+            {
+                float ax, ay, az;
+                float u, v;      // Texture coordinates (From arial.png)
+                float offX, offY; // 2D offset from the anchor (To layout the letters)
+            };
+
+            inline std::vector<LabelVertex> m_cityLabels;
     //};
 } // namespace Globe
+
+#endif // GLOBE_HXX

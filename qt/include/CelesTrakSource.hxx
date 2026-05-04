@@ -1,9 +1,15 @@
 #pragma once
 
+#ifndef CELESTRAKSOURCE_HXX
+#define CELESTRAKSOURCE_HXX
+
+#include "Utility.hxx"
+#include "Globe.hxx"
 #include "BaseDataSource.hxx"
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QMap>
+#include <QFile>
 
 namespace Network
 {
@@ -48,3 +54,5 @@ namespace Network
             }
     };
 } // namespace Network
+
+#endif // CELESTRAKSOURCE_HXX

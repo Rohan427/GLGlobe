@@ -8,24 +8,12 @@ namespace SimCore
     {
         SIM_LOG (LM_INFO, "Initializing GL pipeline");
 
-        initCapitals ("/home/pgallen/Downloads/capitals.csv");
-
         // Initialize entity manager
         m_entityManager = new SimCore::EntityManager();
         m_entityManager->m_updatingEntities = false;
 
         int numThreads = std::thread::hardware_concurrency(); 
         if (numThreads == 0) numThreads = 16; // Fallback
-
-        // TODO: Remove hard coded satellite when we're ready for more objects and have data for them
-        // Re-add the ISS as a Space Entity
-//        std::string l1 = "1 25544U 98067A   24116.51782528  .00002182  00000-0 -11606-4 0  2927";
-//        std::string l2 = "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537";
-        
-//        auto* iss = new Space::Satellite ("ISS (ZARYA)", l1, l2);
-//        m_entityManager->addEntity (iss);
-
-//       SIM_LOG (LM_INFO, "ISS re-initialized in Space package.");
 
         initializeOpenGLFunctions(); // Required in Qt to access gl* calls
 
@@ -43,6 +31,26 @@ namespace SimCore
         glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, sizeof (QVector3D), (void*)0);
         glEnableVertexAttribArray (0);
 
+        glBindVertexArray (0);
+
+
+        // Initialize City VBO
+        glGenVertexArrays (1, &m_cityVao);
+        glGenBuffers (1, &m_cityVbo);
+
+        glBindVertexArray (m_cityVao);
+
+        initCapitals ("/home/pgallen/Downloads/capitals.csv");
+
+        // Generate and Bind VBO
+        glBindBuffer (GL_ARRAY_BUFFER, m_cityVbo);
+        glBufferData (GL_ARRAY_BUFFER, Globe::m_capitals.size() * sizeof (Globe::City), Globe::m_capitals.data(), GL_STATIC_DRAW);
+
+        // Now OpenGL "saves" this configuration into the active m_cityVao
+        glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, sizeof (Globe::City), (void*)0);
+        glEnableVertexAttribArray (0);
+
+        // Unbind to prevent accidental state changes later
         glBindVertexArray (0);
 
 
@@ -66,6 +74,8 @@ namespace SimCore
         registerShader ("NightLights", "shaders/Earth.vert", "shaders/Earth-night.frag");
         registerShader ("BumpLights", "shaders/Earth-Bump.vert", "shaders/Earth-Bump.frag");
         registerShader ("Satellites", "shaders/Satellite.vert", "shaders/Satellite.frag");
+        registerShader ("CityPoints", "shaders/Simple-Point.vert", "shaders/Simple-Point.frag");
+        registerShader ("CityFonts", "shaders/CityLabel.vert", "shaders/CityLabel.frag");
 
         // Set the default
         m_program = Globe::m_shaders["BumpLights"];
@@ -96,7 +106,42 @@ namespace SimCore
         dayTextureID =   Globe::textureMap["earthncice16k"];
         nightTextureID = Globe::textureMap["earthnight16k"];
         bumpTextureID =  Globe::textureMap["earthbump16k"];
+        fontTexture = Globe::textureMap["arialFont"];
         //textureID = textureMap["earth16k"];
+
+
+        // Fonts
+        m_fontManager = new Globe::FontManager();
+        m_fontManager->loadArialFont ("fonts/arial.fnt");
+
+        glGenVertexArrays (1, &m_fontManager->m_labelVao);
+        glBindVertexArray (m_fontManager->m_labelVao);
+
+        glGenBuffers (1, &m_fontManager->m_labelVbo);
+
+        m_fontManager->buildLabelVBO (Globe::m_capitals); 
+
+        // Bind and Upload
+        glBindBuffer (GL_ARRAY_BUFFER, m_fontManager->m_labelVbo);
+
+        int stride = sizeof(Globe::LabelVertex); // This will now be exactly 28 bytes
+
+        glBufferData (GL_ARRAY_BUFFER, Globe::m_cityLabels.size() * stride, Globe::m_cityLabels.data(), GL_STATIC_DRAW);
+
+        // onfigure Layout (Must match your struct: 3 floats for anchor, 2 for UV, 2 for Offset)
+        // Location 0: anchor (x,y,z)
+        glEnableVertexAttribArray (0);
+        glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
+
+        // Location uv (u,v)
+        glEnableVertexAttribArray (1);
+        glVertexAttribPointer (1, 2, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof (float)));
+
+        // Location offset (ox,oy)
+        glEnableVertexAttribArray (2);
+        glVertexAttribPointer (2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(5 * sizeof (float)));
+
+        glBindVertexArray (0); // Clean up state
 
 //        std::cout << "Texture ID is " << textureID << std::endl;
 
@@ -128,17 +173,7 @@ namespace SimCore
         }
 
         // Activate the 32 ACE threads
-        m_entityManager->startSimulation (32);
-
-        //// Trigger an update
-        //// Schedule the cache check for 500ms after the app starts
-        //// This allows the GUI to "pop up" and the 7800 XT to warm up first.
-        //SIM_LOG (LM_INFO, "Waiting on QT to start...");
-        //QTimer::singleShot (500, this, [this]()
-        //{
-        //    this->checkLocalCache();
-        //    SIM_LOG (LM_INFO, "Local cache check complete.");
-        //});
+        m_entityManager->startSimulation (Globe::MAX_THREADS);
     }
 
 
@@ -251,48 +286,28 @@ namespace SimCore
         // 1. Gather latest positions from ACE threads
         if (setActiveShader ("Satellites"))
         {
-            int activeCount = 0;
-
-            if (EntityManager::m_vectorLock.tryacquire()  == 0) // Try and grab the ACE thread mutex
+            if (SimCore::EntityManager::m_vectorLock.tryacquire() == 0)
             {
-                m_satPositions.clear();
+                m_satPositions.clear(); 
+                const auto& entities = m_entityManager->getEntities();
 
-                if (m_satPositions.capacity() >= (m_entityManager->getEntities().size() * sizeof (QVector3D)))
+                for (auto* entity : entities)
                 {
-                    std::vector<BaseEntity*> entities = m_entityManager->getEntities();
-
-                    for (auto* entity : entities) 
-                    {
-                        if (entity)
-                        {
-                            m_satPositions.push_back (entity->getPosition());
-                        }
-                    }
-                        
-                    activeCount = m_satPositions.size();
-
- //                   std::cout << "Number of satellites:" << activeCount << std::endl;
+                    if (entity) m_satPositions.push_back(entity->getPosition());
                 }
 
-                EntityManager::m_vectorLock.release();
-            }                
-
-            if (activeCount > 0)
-            {
-//                std::cout << "rendering satellites" << std::endl;
-
-                // 2. Stream to GPU using Orphaning
+                SimCore::EntityManager::m_vectorLock.release();
+                
+                // 2. Only upload to GPU if we actually refreshed the data
                 glBindBuffer (GL_ARRAY_BUFFER, m_satVbo);
+                // Orphan and upload
+                glBufferData (GL_ARRAY_BUFFER, MAX_SATELLITES * sizeof(QVector3D), nullptr, GL_STREAM_DRAW);
+                glBufferSubData (GL_ARRAY_BUFFER, 0, m_satPositions.size() * sizeof(QVector3D), m_satPositions.data());
+            }
 
-                // Orphan the buffer: tell the driver we don't care about old data
-                glBufferData (GL_ARRAY_BUFFER, MAX_SATELLITES * sizeof (QVector3D), nullptr, GL_STREAM_DRAW);
-
-                // Upload new data
-                GLsizeiptr totalBytes = m_satPositions.size() * sizeof (QVector3D);
-                glBufferSubData (GL_ARRAY_BUFFER, 0, totalBytes, m_satPositions.data());
-    //            glBufferSubData (GL_ARRAY_BUFFER, 0, m_satPositions.size() * sizeof (QVector3D), m_satPositions.data());
-
-                // 3. Draw all satellites in ONE call
+            // Draw all satellites in ONE call
+            if (!m_satPositions.empty())
+            {
                 m_program->bind();
                 m_program->setUniformValue ("mvp", mvp); //projection * view * model);
                 m_program->setUniformValue ("satColor", QVector3D (1.0f, 0.0f, 1.0f)); // Magenta
@@ -302,9 +317,6 @@ namespace SimCore
                 glBlendFunc (GL_SRC_ALPHA, GL_ONE); // Additive blend makes them "glow"
                 
                 glBindVertexArray (m_satVao);
-
-                // Use GL_POINTS for massive performance on RDNA3
-    //            glDisable(GL_DEPTH_TEST);
                 glDepthFunc (GL_LEQUAL); 
 
     //            std::cout << "Drawing " << m_satPositions.size() << " sats" << std::endl;
@@ -317,10 +329,6 @@ namespace SimCore
                 m_program->release();
 
 //                std::cout << "     rendering done" << std::endl;
-            }
-            else
-            {
-//                std::cout << "Skipping frame" << std::endl;
             }
         }
         /*********************** END SATILLITES *********************/
@@ -352,24 +360,59 @@ namespace SimCore
         
 
         /********************** 2D Painter *********************/
-        glDisable (GL_DEPTH_TEST);
-        glDisable (GL_CULL_FACE);
-        QPainter painter (this);
-
-        QFont font ("Arial", Globe::m_fontSize, QFont::Normal); // Specifically name a common font
-        font.setHintingPreference (QFont::PreferNoHinting); // Prevents expensive glyph caching
-        painter.setFont (font);
-
-        painter.beginNativePainting();
-
-        painter.setRenderHint (QPainter::Antialiasing);
-        QRect viewport (0, 0, width(), height());
 
         ///////////////////// City labels //////////////////////////
         if (Globe::m_showCities)
         {
-/*
-            /// Paint test (a large point on the North Pole, always visible ///
+            if (setActiveShader ("CityPoints"))
+            {
+                m_program->bind();
+                m_program->setUniformValue ("mvp", mvp);
+                
+                glEnable (GL_PROGRAM_POINT_SIZE); // Enables gl_PointSize from shader
+                glEnable (GL_BLEND);
+                glBlendFunc (GL_SRC_ALPHA, GL_ONE);
+                glBindVertexArray (m_cityVao);
+
+                glDepthFunc (GL_LEQUAL); 
+
+                // Draw all cities in a single ultra-fast call
+                glDrawArrays (GL_POINTS, 0, Globe::m_cityCount);
+                glBindVertexArray (0);
+                glDisable (GL_BLEND);
+
+                m_program->release();
+            }
+
+            if (setActiveShader ("CityFonts"))
+            {
+                m_program->bind();
+                m_program->setUniformValue ("viewportSize", QVector2D (width(), height()));
+                m_program->setUniformValue ("scale", 0.45f); 
+                m_program->setUniformValue ("mvp", mvp);
+
+                // Bind Day Texture to Unit 0
+                glActiveTexture (GL_TEXTURE0);
+                glBindTexture (GL_TEXTURE_2D, fontTexture);
+                m_program->setUniformValue ("arialFont", 0);
+
+                // Scale should be based on your viewport size and zoom level
+                // Example: 1.0 / windowHeight * zoomFactor
+                ////float m_currentLabelScale = 1.0f / (float)height() * Globe::m_zoom;
+                ////m_program->setUniformValue ("scale", m_currentLabelScale);
+
+                glEnable (GL_BLEND);
+                glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glDepthFunc (GL_LEQUAL); 
+
+                glBindVertexArray (m_fontManager->m_labelVao);
+
+                glDrawArrays (GL_TRIANGLES, 0, m_fontManager->m_labelVertexCount);
+
+                glBindVertexArray (0);
+            }
+
+            /*// Paint test (a large point on the North Pole, always visible ///
         
             // 2. Use the exact matrices from your globe draw
             QVector3D northPole (0.0f, 1.51f, 0.0f); // North Pole is Y-up
@@ -400,6 +443,18 @@ namespace SimCore
             }
             ***************** END TEST **********************/
 
+            glDisable (GL_DEPTH_TEST);
+            glDisable (GL_CULL_FACE);
+            QPainter painter (this);
+
+            QFont font ("Arial", Globe::m_fontSize, QFont::Normal); // Specifically name a common font
+            font.setHintingPreference (QFont::PreferNoHinting); // Prevents expensive glyph caching
+            painter.setFont (font);
+
+            painter.beginNativePainting();
+
+            painter.setRenderHint (QPainter::Antialiasing);
+            QRect viewport (0, 0, width(), height());
 
             for (const auto& city : Globe::m_capitals)
             {
@@ -410,18 +465,10 @@ namespace SimCore
                 QPen myPen (Globe::m_textColor);
                 myPen.setWidth (1); 
 
-                // Set up the Brush (for the fill of the circle)
-                QBrush myBrush (Globe::m_cityColor);
-                painter.setBrush (myBrush);
-
                 // Set up the shadow pen
                 QPen shadowPen (Globe::m_shadowColor);
                 shadowPen.setWidth (7);
 
-                // Create a font object with your preferred family
-//                QFont cityFont ("Arial", Globe::m_fontSize, QFont::Normal);
-//                painter.setFont (cityFont);
-                
                 if (clipPos.w() != 0.0f)
                 {
                     float ndcX = clipPos.x() / clipPos.w();
@@ -437,11 +484,6 @@ namespace SimCore
                         {
                             int x = (int)((ndcX + 1.0f) * 0.5f * width());
                             int y = (int)((1.0f - ndcY) * 0.5f * height());
-
-        //                    painter.setBrush (Qt::cyan);
-        //                    painter.setPen (QPen (Qt::black, 1));
-
-                            painter.drawEllipse (QPointF (x, y), Globe::m_markerSize, Globe::m_markerSize);
 
                             if (Globe::m_selectedCity)
                             {
@@ -474,23 +516,16 @@ namespace SimCore
 //                                painter.setFont (QFont ("Arial", Globe::m_fontSize));
                                 painter.drawText (cardRect.adjusted (10, 35, -10, -10), Qt::AlignTop, Globe::m_selectedCity->extraInfo);
                             }
-                            else
-                            {
-                                painter.setPen (shadowPen);
-                                painter.drawText (x + 5, y + 5, city.name);
-
-                                painter.setPen (myPen);
-                                painter.drawText (x + 10, y, city.name);
-                            }
                         }
                     } // if (ndcZ >= -1.0f && ndcZ <= 1.0f)
                 } // if (clipPos.w() != 0.0f)
             } // for (const auto& city : m_capitals)
+            
+            painter.endNativePainting(); 
+            painter.end();
+
         } // if (m_showCities)
 
-        painter.endNativePainting(); 
-
-        painter.end();
 
         /******************* end painter ***************/
 
@@ -866,46 +901,83 @@ namespace SimCore
         SIM_LOG (LM_INFO, "Globe reset to default position");
     }
 
-    GLuint MyGLWidget::loadTexture (std::array<int, 2>& mapSize, const QString& filePath)
+    GLuint MyGLWidget::loadTexture (std::array<int, 2>& mapSize, const QString& filePath, const int type = 1)
     {
+        if (type < 1)
+        {
+            SIM_LOG (LM_CRITICAL, "Invalid texture type");
+            return 0;
+        }
+
+        if (filePath == nullptr)
+        {
+            SIM_LOG (LM_CRITICAL, "Empty or null texture file path");
+        }
+
         QImageReader reader (filePath);
         
-        // Bypass the default 128MB limit for your 8k texture
+        // Bypass the default 128MB limit for an 8k texture
         reader.setAllocationLimit (1024); 
 
         if (!reader.canRead())
         {
-            SIM_LOG (LM_ERROR, QString ("Cannot read image: %1").arg (reader.errorString()));
+            SIM_LOG (LM_CRITICAL, QString ("Cannot read image: %1").arg (reader.errorString()));
             return 0;
         }
 
-        // Optional: Downscale during load to stay within ROCm memory stability limits
-        //if (reader.size().width() > 8192)
+        if (type == 1)
         {
-            reader.setScaledSize (QSize (mapSize[0], mapSize[1]));
+            // Optional: Downscale during load to stay within ROCm memory stability limits
+            //if (reader.size().width() > 8192)
+            {
+                reader.setScaledSize (QSize (mapSize[0], mapSize[1]));
+            }
         }
 
         QImage img = reader.read();
 
         if (img.isNull())
         {
-            std::cout << "Load failed: " << reader.errorString().toStdString().c_str() << std::endl;
+            SIM_LOG (LM_CRITICAL, QString ("Load failed: %1").arg (reader.errorString().toStdString().c_str()));
             return 0;
         }
+        else
+        {
+            SIM_LOG (LM_INFO, QString ("Reading texture file %1").arg (filePath));
+        }
 
-        // Convert to RGBA8888 for GL_RGBA8 compatibility
-        // Use flipped() to move the origin from top-left to bottom-left for OpenGL
-        img = img.convertToFormat (QImage::Format_RGBA8888).flipped (Qt::Horizontal);
+        if (type == 1)
+        {
+            // Convert to RGBA8888 for GL_RGBA8 compatibility
+            // Use flipped() to move the origin from top-left to bottom-left for OpenGL
+            img = img.convertToFormat (QImage::Format_RGBA8888).flipped (Qt::Horizontal);
+        }
+        else if (type == 2)
+        {
+            img = img.convertToFormat (QImage::Format_RGBA8888);
+        }
 
         GLuint textureID;
         glGenTextures (1, &textureID);
         glBindTexture (GL_TEXTURE_2D, textureID);
 
-        // Texture parameters for the globe
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        if (type == 1)
+        {
+            // Texture parameters for the globe
+            glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        }
+        else if (type == 2)
+        {
+            // SDF Font Specifics: LINEAR filtering is mandatory for smooth scaling.
+            // We disable Mipmaps for SDF fonts to keep the distance field edges sharp.
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        }
 
         // Upload to the RX 7800XT
         glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, 
@@ -919,18 +991,30 @@ namespace SimCore
 
     bool MyGLWidget::loadTextureFiles (std::array<int, 2>& mapSize)
     {
-        for (const auto& pair : Globe::TextureFiles)
+        for (int i = 0; i < Globe::TextureList.size(); i++)
         {
-            GLuint textureID = loadTexture (mapSize, pair.second);
-            
-            if (textureID > 0)
+            std::map<std::string, QString> texture = Globe::TextureList.at (i);
+
+            if (texture.empty())
             {
-                Globe::textureMap.insert ({pair.first, textureID});
-            }
-            else
-            {
-                SIM_LOG (LM_CRITICAL, "Fatal error: Texure ID is 0"); 
+                SIM_LOG (LM_CRITICAL, "No map found");
                 return false;
+            }
+
+            for (const auto& pair : Globe::TextureList.at (i))
+            {
+                // Indexes start at 0, but types start at 1
+                GLuint textureID = loadTexture (mapSize, pair.second, i+1);
+                
+                if (textureID > 0)
+                {
+                    Globe::textureMap.insert ({pair.first, textureID});
+                }
+                else
+                {
+                    SIM_LOG (LM_CRITICAL, "Fatal error: Texure ID is 0"); 
+                    return false;
+                }
             }
         }
 
@@ -1021,11 +1105,13 @@ namespace SimCore
             return;
         }
 
-//        SIM_LOG (LM_INFO, "Successfully opened " + filename);
+        SIM_LOG (LM_INFO, "Successfully opened " + filename);
 
         QTextStream in (&file);
         // Skip header line if your CSV has one
         if (!in.atEnd()) in.readLine(); 
+
+        SIM_LOG (LM_INFO, "Parsing cities from " + filename);
 
         while (!in.atEnd())
         {
@@ -1041,26 +1127,17 @@ namespace SimCore
                 city.lon = fields[4].toFloat();
                 city.extraInfo = "Population: " + fields[5].trimmed();
 
+                city.position = Utility::latLonToXYZ (Globe::m_liveOffset, city.lat, city.lon, Globe::cityLabelHeight);
+
                 Globe::m_capitals.push_back (city);
             }
+
+            Globe::m_cityCount = Globe::m_capitals.size();
         }
 
         file.close();
 
-//       SIM_LOG (LM_INFO, QString ("Loaded %1 cities.").arg (Globe::m_capitals.size()));
-    /*
-        m_capitals =
-        {
-            {"Denver, CO", 39.7392, -104.9903},
-            {"Augusta, ME", 44.3106, -69.7795},
-            {"Sacramento, CA", 38.5816, -121.4944},
-            {"Tallahassee, FL", 30.4383, -84.2807},
-            {"Austin, TX", 30.2672, -97.7431},
-            {"Albany, NY", 42.6526, -73.7562},
-            {"NULL ISLAND", 0.0, 0.0}
-            // ... add the rest here
-        };
-    */
+        SIM_LOG (LM_INFO, QString ("Loaded %1 cities.").arg (Globe::m_capitals.size()));
     }
 
     void MyGLWidget::checkLocalCache (const QString& groupKey)

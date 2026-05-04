@@ -1,6 +1,8 @@
 #pragma once
 
-//#include "LegacyGLApp.hxx"
+#ifndef MYGLWIDGET_HXX
+#define MYGLWIDGET_HXX
+
 #include <iostream>
 #include <cstdlib>
 #include <array>
@@ -25,7 +27,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QTimer>
-//#include "MainWindow.hxx"
+#include "MainWindow.hxx"
 
 #include "SGP4.h"
 #include "Tle.h"
@@ -36,6 +38,7 @@
 #include "EntityManager.hxx"
 #include "Satellite.hxx"
 #include "CelesTrakSource.hxx"
+#include "FontManager.hxx"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -72,6 +75,7 @@ namespace SimCore
             GLuint dayTextureID = 0;
             GLuint nightTextureID = 0;
             GLuint bumpTextureID = 0;
+            GLuint fontTexture = 0;
             QOpenGLVertexArrayObject m_vao;
             QOpenGLShaderProgram* m_program;
             QOpenGLBuffer m_vbo;
@@ -81,7 +85,8 @@ namespace SimCore
             QVector3D m_issPos;
             QElapsedTimer m_satTimer;
             QVector3D m_lastIssPos;
-            EntityManager* m_entityManager = nullptr; 
+            EntityManager* m_entityManager = nullptr;
+            Globe::FontManager* m_fontManager;
 
             // Transform variables to track state (mouse)
             QPoint m_lastMousePos;
@@ -101,8 +106,14 @@ namespace SimCore
             GLuint m_satVao;
             GLuint m_satVbo;
             std::vector<QVector3D> m_satPositions; // GPU staging buffer
-
+            
             Network::CelesTrakSource* m_satelliteSource;
+
+            GLuint m_cityVao;
+            GLuint m_cityVbo;
+
+            GLuint m_fontVao;
+            GLuint m_fontVbo;
 
             /*********************** Functions *******************/
 
@@ -160,7 +171,7 @@ namespace SimCore
             // To test basic pipeline with vertex + fragment shaders
             GLuint createSimpleTexture (int w, int h);
 
-            GLuint loadTexture (std::array<int, 2>& mapSize, const QString& filePath);
+            GLuint loadTexture (std::array<int, 2>& mapSize, const QString& filePath, const int type);
             bool loadTextureFiles (std::array<int, 2>& mapSize);
 
             void initializeGlobePosition();
@@ -250,3 +261,5 @@ namespace SimCore
                 }
     };
 } // namespace SimCore
+
+#endif // MYGLWIDGET_HXX
