@@ -1,12 +1,14 @@
 //#include "LegacyGLApp.hxx"
 
-
+#include "Config.hxx"
 #include <QOpenGLWidget>
 #include <QApplication>
 #include <QOpenGLFunctions_4_3_Core>
 //#include "MyGLWidget.hxx"
 #include "MainWindow.hxx"
 #include <ace/Log_Msg.h>
+
+#define DEBUG false
 
 using namespace SimCore;
 
@@ -18,6 +20,34 @@ int ACE_TMAIN (int argc, ACE_TCHAR *argv[])
     ACE_Log_Msg::instance()->priority_mask (LM_DEBUG | LM_INFO | LM_ERROR | LM_CRITICAL, ACE_Log_Msg::PROCESS);
 
     ACE_DEBUG ((LM_INFO, ACE_TEXT ("[%T][%M][TID:%t] %s\n"), "Starting up"));
+
+    // Must load application config parameters first
+    ::Config::getInstance().init ("configuration.json");
+
+#if DEBUG
+    std::cout << "DEFAULT_LIVEOFFSET " << std::fixed << std::setprecision (5) << ::Config::getInstance().DEFAULT_LIVEOFFSET << std::endl;
+    std::cout << "DEFAULT_TILT " << std::fixed << std::setprecision (5) << ::Config::getInstance().DEFAULT_TILT << std::endl;
+    std::cout << "DEFAULT_ROTATION X " << std::fixed << std::setprecision (5) << ::Config::getInstance().DEFAULT_ROTATION.x() << std::endl;
+    std::cout << "DEFAULT_ROTATION Y " << std::fixed << std::setprecision (5) << ::Config::getInstance().DEFAULT_ROTATION.y() << std::endl;
+    std::cout << "DEFAULT_AMBIENT " << std::fixed << std::setprecision (5) << ::Config::getInstance().DEFAULT_AMBIENT << std::endl;
+    std::cout << "DEFAULT_RADIUS " << std::fixed << std::setprecision (5) << ::Config::getInstance().DEFAULT_RADIUS << std::endl;
+    std::cout << "DEFAULT_SECTORS " << ::Config::getInstance().DEFAULT_SECTORS << std::endl;
+    std::cout << "DEFAULT_STACKS " << ::Config::getInstance().DEFAULT_STACKS << std::endl;
+    std::cout << "DEFAULT_PERSPECTIVE " << std::fixed << std::setprecision (5) << ::Config::getInstance().DEFAULT_PERSPECTIVE << std::endl;
+    std::cout << "DEFAULT_FONT_SIZE " << ::Config::getInstance().DEFAULT_FONT_SIZE << std::endl;
+    std::cout << "DEFAULT_MARKER_SIZE " << std::fixed << std::setprecision (5) << ::Config::getInstance().DEFAULT_MARKER_SIZE << std::endl;
+    std::cout << "DEFAULT_ZOOM " << std::fixed << std::setprecision (5) << ::Config::getInstance().DEFAULT_ZOOM  << std::endl;
+    std::cout << "DEFAULT_OFFSET X " << std::fixed << std::setprecision (5) << ::Config::getInstance().DEFAULT_OFFSET.x() << std::endl;
+    std::cout << "DEFAULT_OFFSET Y " << std::fixed << std::setprecision (5) << ::Config::getInstance().DEFAULT_OFFSET.y() << std::endl;
+    std::cout << "LABEL_HEIGHT_OFFSET " << std::fixed << std::setprecision (5) << ::Config::getInstance().LABEL_HEIGHT_OFFSET << std::endl;
+    std::cout << "THREAD_SLEEP_TIME " << ::Config::getInstance().THREAD_SLEEP_TIME << std::endl;
+    std::cout << "MAX_THREADS " << ::Config::getInstance().MAX_THREADS << std::endl;
+    std::cout << "DATA_DIR_PATH " << ::Config::getInstance().DATA_DIR_PATH.toStdString() << std::endl;
+    std::cout << "DATA_FILE_SAT_SUFFIX " << ::Config::getInstance().DATA_FILE_SAT_SUFFIX.toStdString() << std::endl;
+    std::cout << "CELESTRAK_URL " << ::Config::getInstance().CELESTRAK_URL.toStdString() << std::endl;
+    std::cout << "FONT_PATH " << ::Config::getInstance().FONT_PATH.toStdString() << std::endl;
+#endif
+
 
     // 1. Force Qt to ONLY look in the standard RHEL system plugin directory
     // This stops it from scanning your local build folders and crashing
@@ -51,4 +81,5 @@ int ACE_TMAIN (int argc, ACE_TCHAR *argv[])
 
     ACE_DEBUG ((LM_INFO, ACE_TEXT ("[%T][%M][TID:%t] %s\n"), "Starting Application"));
     return a.exec();
+
 }

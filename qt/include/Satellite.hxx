@@ -8,6 +8,7 @@
 #include "Globe.hxx"
 #include "BaseEntity.hxx"
 #include <SGP4.h>
+//#include "sgp4unit.h"
 #include <Tle.h>
 #include <memory>
 #include <mutex>

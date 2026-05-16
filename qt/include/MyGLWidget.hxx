@@ -39,6 +39,7 @@
 #include "Satellite.hxx"
 #include "CelesTrakSource.hxx"
 #include "FontManager.hxx"
+#include "Tracking.hxx"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -115,6 +116,8 @@ namespace SimCore
             GLuint m_fontVao;
             GLuint m_fontVbo;
 
+            GLuint m_sensorVao;
+
             /*********************** Functions *******************/
 
             void initCapitals (QString filename);
@@ -124,6 +127,7 @@ namespace SimCore
             // This constructor is required to use the widget in a layout
             explicit MyGLWidget (QWidget* parent = nullptr) : QOpenGLWidget (parent) 
             {
+                setFocusPolicy (Qt::StrongFocus);
             }
 
             ~MyGLWidget() 

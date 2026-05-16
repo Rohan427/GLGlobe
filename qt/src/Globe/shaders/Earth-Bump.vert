@@ -17,7 +17,7 @@ void main()
     
     // Pass the Normal and Position in World Space
     vNormal = normalize (mat3 (modelMatrix) * normal);
-    vPos = vec3 (modelMatrix * vec4(pos, 1.0));
+    vPos = vec3 (modelMatrix * vec4 (pos, 1.0));
     
     gl_Position = mvp * vec4 (pos, 1.0);
 }

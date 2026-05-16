@@ -233,6 +233,7 @@ namespace SimCore
 
     void EntityManager::startSimulation (int numThreads)
     {
+        m_tracker = new Objects::Tracking();
         s_instance = this;
         m_numThreads = numThreads;
 

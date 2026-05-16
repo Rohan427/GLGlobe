@@ -1,5 +1,6 @@
 #include "MyGLWidget.hxx"
 #include "MainWindow.hxx"
+#include "Tracking.hxx"
 
 
 namespace SimCore
@@ -8,9 +9,34 @@ namespace SimCore
     {
         SIM_LOG (LM_INFO, "Initializing GL pipeline");
 
+        // Initialize important variables from defaults
+        Globe::g_perspective = ::Config::getInstance().DEFAULT_PERSPECTIVE;
+        Globe::m_liveOffset = ::Config::getInstance().DEFAULT_LIVEOFFSET;
+        Globe::m_liveTilt = ::Config::getInstance().DEFAULT_TILT;
+        Globe::m_rotation = ::Config::getInstance().DEFAULT_ROTATION; // x = pitch, y = yaw
+        Globe::m_zoom = ::Config::getInstance().DEFAULT_ZOOM;
+        Globe::m_offset = ::Config::getInstance().DEFAULT_OFFSET;   // for dragging
+        Globe::m_ambientLevel = ::Config::getInstance().DEFAULT_AMBIENT;
+
+        // Radius 1.5, 64 sectors/stacks
+        Globe::globeRadius = ::Config::getInstance().DEFAULT_RADIUS;
+        Globe::globeSectors = ::Config::getInstance().DEFAULT_SECTORS;
+        Globe::globeStacks = ::Config::getInstance().DEFAULT_STACKS;
+
+        // Height of labels and points above the globe. Put labels above globe, but not too far or they will "slide" due
+        // to perspective and zoom changes
+        Globe::cityLabelHeight = Globe::globeRadius + ::Config::getInstance().LABEL_HEIGHT_OFFSET;
+
+        Globe::m_markerSize = ::Config::getInstance().DEFAULT_MARKER_SIZE;
+        Globe::m_fontSize = ::Config::getInstance().DEFAULT_FONT_SIZE; // Default size
+
+        std::cout << "Initialize Entity Manager" << std::endl;
+
         // Initialize entity manager
         m_entityManager = new SimCore::EntityManager();
         m_entityManager->m_updatingEntities = false;
+
+        std::cout << "Check resources" << std::endl;
 
         int numThreads = std::thread::hardware_concurrency(); 
         if (numThreads == 0) numThreads = 16; // Fallback
@@ -24,6 +50,9 @@ namespace SimCore
 
         glBindVertexArray (m_satVao);
         glBindBuffer (GL_ARRAY_BUFFER, m_satVbo);
+
+
+        // Initialize Sensor VAO
 
         // Pre-allocate space for, say, 50,000 satellites
         glBufferData (GL_ARRAY_BUFFER, MAX_SATELLITES * sizeof (QVector3D), nullptr, GL_STREAM_DRAW);
@@ -71,11 +100,19 @@ namespace SimCore
         m_program = new QOpenGLShaderProgram (this);
 
     //    registerShader ("Standard", "shaders/Earth.vert", "shaders/Earth.frag");
+
+        // Globe shaders
         registerShader ("NightLights", "shaders/Earth.vert", "shaders/Earth-night.frag");
         registerShader ("BumpLights", "shaders/Earth-Bump.vert", "shaders/Earth-Bump.frag");
-        registerShader ("Satellites", "shaders/Satellite.vert", "shaders/Satellite.frag");
         registerShader ("CityPoints", "shaders/Simple-Point.vert", "shaders/Simple-Point.frag");
+        registerShader ("RangeRings", "shaders/Sensor-Sphere.vert", "shaders/Sensor-Sphere.frag");
+
+        // Object shaders
+        registerShader ("Satellites", "shaders/Satellite.vert", "shaders/Satellite.frag");
+
+        // Font shaders
         registerShader ("CityFonts", "shaders/CityLabel.vert", "shaders/CityLabel.frag");
+        
 
         // Set the default
         m_program = Globe::m_shaders["BumpLights"];
@@ -173,30 +210,12 @@ namespace SimCore
         }
 
         // Activate the 32 ACE threads
-        m_entityManager->startSimulation (Globe::MAX_THREADS);
+        m_entityManager->startSimulation (::Config::getInstance().MAX_THREADS);
     }
 
 
     void MyGLWidget::paintGL() 
     {
-//        std::cout << "paintGL entered" << std::endl;
-        // Compute shader code
-    //    m_computeProgram->bind();
-    //    m_computeProgram->setUniformValue ("time", (float)timer.elapsed() / 1000.0f);
-        
-        // Bind texture to Image Unit 0 (matching 'binding = 0' in shader)
-    //    glBindImageTexture (0, textureID, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
-        
-        // Dispatch enough threads to cover a 512x512 texture (512/16 = 32 groups)
-    //    glDispatchCompute (512 / 16, 512 / 16, 1);
-        
-        // Ensure compute finishes before the fragment shader tries to read it
-    //    glMemoryBarrier (GL_SHADER_IMAGE_ACCESS_BARRIER_BIsetActiveShaderT);
-    //    m_computeProgram->release();
-
-        // End compute shader code
-
-
         glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glEnable (GL_DEPTH_TEST);
         glDepthFunc (GL_LESS);
@@ -208,7 +227,7 @@ namespace SimCore
         float aspect = (float)width() / (float)height();
         float currentFov = Globe::g_perspective * Globe::m_zoom; 
         QMatrix4x4 projection;
-        projection.perspective (Globe::DEFAULT_PERSPECTIVE, aspect, 0.1f, 100.0f);
+        projection.perspective (::Config::getInstance().DEFAULT_PERSPECTIVE, aspect, 0.1f, 100.0f);
 
         // View (The Camera/Mouse controls)
         QMatrix4x4 view;
@@ -244,7 +263,7 @@ namespace SimCore
        
         // 4. Update Uniforms
         m_program->bind();
-        m_program->setUniformValue ("ambientIntensity", (float)Globe::m_ambientLevel);
+        m_program->setUniformValue ("ambientIntensity", Globe::m_ambientLevel);
         m_program->setUniformValue ("modelMatrix", model);
         m_program->setUniformValue ("sunDirection", QVector3D (0, 0, 1));
         m_program->setUniformValue ("mvp", mvp);
@@ -279,8 +298,112 @@ namespace SimCore
         glDrawArrays (GL_TRIANGLES, 0, m_sphereVertices.size() / 8);
         glBindVertexArray (0);
 
-        m_vao.release();
         m_program->release();
+
+        // For range rings
+        if (m_entityManager->m_tracker->m_filterActive)
+        {
+            setActiveShader ("RangeRings");
+
+            // 2. Setup Translucent Alpha Blending States
+            glEnable (GL_BLEND);
+            glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+            // CRITICAL: Disable depth writing to prevent concentric nested 3D hulls 
+            // from clipping out or occluding smaller spheres inside them.
+            glDepthMask (GL_FALSE);
+
+            QMatrix4x4 invView = view.inverted();
+            QVector3D extractedCameraPos = QVector3D (invView (0, 3), invView (1, 3), invView (2, 3));
+
+            // PULL THE METRIC POSITION DIRECTLY FROM YOUR CITY MARKER UNIFORM
+            QVector3D localFilterCenter = m_entityManager->m_tracker->m_filterAnchor;
+
+            // Calculate the true world position for the shader tracking uniform
+            QVector4D rotatedCenter4 = model * QVector4D (localFilterCenter, 1.0f);
+            QVector3D worldFilterCenter = rotatedCenter4.toVector3D();
+
+            // ALIGN GL MATH WITH THE SGP4 MODEL REFS
+            double earthRadiusMeters = libsgp4::kXKMPER;
+            float glScaleFactor      = Globe::globeRadius / static_cast<float> (earthRadiusMeters);
+
+            QVector3D ringColorVec = QVector3D(::Config::getInstance().RANGE_RING_COLOR.x(),
+                                               ::Config::getInstance().RANGE_RING_COLOR.y(),
+                                               ::Config::getInstance().RANGE_RING_COLOR.z()
+                                              );
+
+            // Convert your range spacing and max limits to matching fractional GL scales
+            float glRingDelta      = m_entityManager->m_tracker->m_RngRingDelta;
+            float glDetectionRange = m_entityManager->m_tracker->m_detectionRange - Globe::globeRadius;
+
+            //ACE_DEBUG ((LM_DEBUG, "Ring delta: %f %f, Max Range: %f %f\n",
+            //            m_entityManager->m_tracker->m_RngRingDelta, glRingDelta,
+            //            m_entityManager->m_tracker->m_detectionRange, glDetectionRange)
+            //          );
+
+            m_program->bind();
+            m_program->setUniformValue ("view", view);
+            m_program->setUniformValue ("projection", projection);
+            m_program->setUniformValue ("cameraWorldPos", extractedCameraPos); // Vector3D tracking your camera pos
+            m_program->setUniformValue ("filterCenter", worldFilterCenter);
+            m_program->setUniformValue ("rangeRingColor", ringColorVec);
+            m_program->setUniformValue ("globeRadius", Globe::globeRadius);
+
+            m_vao.bind();
+            m_vbo.bind();
+            int strideBytes = 8 * sizeof (float);
+
+            // Map Location 0 -> Position Vector [X, Y, Z]
+            m_program->enableAttributeArray (0);
+            m_program->setAttributeBuffer (0, GL_FLOAT, 0, 3, strideBytes);
+
+            float currentRadius = glRingDelta;
+            int vertexCount = m_sphereVertices.size() / 8;
+
+            QMatrix4x4 localRingModel;
+
+            while (currentRadius < glDetectionRange)
+            {
+                // MATCH THE EARTH MESH TRANSFORMS EXACTLY
+                // Rings must rotate with axial tilt and spin because filterCenter is a fixed feature point
+                localRingModel = model;
+
+                // Translate in local model space BEFORE applying rotations, then scale
+                localRingModel.translate (localFilterCenter); 
+                localRingModel.scale (currentRadius); 
+
+                m_program->setUniformValue ("model", localRingModel);
+                m_program->setUniformValue ("mvp", projection * view * localRingModel);
+
+                glDrawArrays (GL_TRIANGLES, 0, vertexCount);
+
+                currentRadius += glRingDelta;
+            }
+
+            // Always draw last ring
+            localRingModel = model;
+
+            // Translate in local model space BEFORE applying rotations, then scale
+            localRingModel.translate (localFilterCenter); 
+            localRingModel.scale (glDetectionRange); 
+
+            m_program->setUniformValue ("model", localRingModel);
+            m_program->setUniformValue ("mvp", projection * view * localRingModel);
+
+            glDrawArrays (GL_TRIANGLES, 0, vertexCount);
+
+
+            // Restore standard pipeline rendering state configurations
+            glDisableVertexAttribArray (0);
+            glDisableVertexAttribArray (1);
+
+            m_vao.release();
+            m_vbo.release();
+
+            glDepthMask (GL_TRUE);
+            glDisable (GL_BLEND);
+        }
+
 
         /******************** Draw satellites *******************/
         // 1. Gather latest positions from ACE threads
@@ -293,7 +416,7 @@ namespace SimCore
 
                 for (auto* entity : entities)
                 {
-                    if (entity) m_satPositions.push_back(entity->getPosition());
+                    if (entity) m_satPositions.push_back (entity->getPosition());
                 }
 
                 SimCore::EntityManager::m_vectorLock.release();
@@ -301,8 +424,8 @@ namespace SimCore
                 // 2. Only upload to GPU if we actually refreshed the data
                 glBindBuffer (GL_ARRAY_BUFFER, m_satVbo);
                 // Orphan and upload
-                glBufferData (GL_ARRAY_BUFFER, MAX_SATELLITES * sizeof(QVector3D), nullptr, GL_STREAM_DRAW);
-                glBufferSubData (GL_ARRAY_BUFFER, 0, m_satPositions.size() * sizeof(QVector3D), m_satPositions.data());
+                glBufferData (GL_ARRAY_BUFFER, MAX_SATELLITES * sizeof (QVector3D), nullptr, GL_STREAM_DRAW);
+                glBufferSubData (GL_ARRAY_BUFFER, 0, m_satPositions.size() * sizeof (QVector3D), m_satPositions.data());
             }
 
             // Draw all satellites in ONE call
@@ -310,7 +433,14 @@ namespace SimCore
             {
                 m_program->bind();
                 m_program->setUniformValue ("mvp", mvp); //projection * view * model);
-                m_program->setUniformValue ("satColor", QVector3D (1.0f, 0.0f, 1.0f)); // Magenta
+                m_program->setUniformValue ("satColor", 1.0f, 0.0f, 1.0f); // Magenta
+                m_program->setUniformValue ("filterEnabled", m_entityManager->m_tracker->m_filterActive);
+
+                if (m_entityManager->m_tracker->m_filterActive)
+                {
+                    m_program->setUniformValue ("filterCenter", m_entityManager->m_tracker->m_filterAnchor);
+                    m_program->setUniformValue ("filterRadius", m_entityManager->m_tracker->m_detectionRange);
+                }
 
                 glEnable (GL_PROGRAM_POINT_SIZE); // Enables gl_PointSize from shader
                 glEnable (GL_BLEND);
@@ -357,7 +487,6 @@ namespace SimCore
             frames = 0;
             fpsTimer.restart();
         }
-        
 
         /********************** 2D Painter *********************/
 
@@ -396,11 +525,6 @@ namespace SimCore
                 glBindTexture (GL_TEXTURE_2D, fontTexture);
                 m_program->setUniformValue ("arialFont", 0);
 
-                // Scale should be based on your viewport size and zoom level
-                // Example: 1.0 / windowHeight * zoomFactor
-                ////float m_currentLabelScale = 1.0f / (float)height() * Globe::m_zoom;
-                ////m_program->setUniformValue ("scale", m_currentLabelScale);
-
                 glEnable (GL_BLEND);
                 glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                 glDepthFunc (GL_LEQUAL); 
@@ -411,37 +535,6 @@ namespace SimCore
 
                 glBindVertexArray (0);
             }
-
-            /*// Paint test (a large point on the North Pole, always visible ///
-        
-            // 2. Use the exact matrices from your globe draw
-            QVector3D northPole (0.0f, 1.51f, 0.0f); // North Pole is Y-up
-
-            // 3. Manual Projection to bypass 'project()' bugs
-            QVector4D clipPos = mvp * QVector4D (northPole, 1.0f);
-
-            if (clipPos.w() != 0.0f) {
-                // Convert to Normalized Device Coordinates (-1 to 1)
-                float ndcX = clipPos.x() / clipPos.w();
-                float ndcY = clipPos.y() / clipPos.w();
-                float ndcZ = clipPos.z() / clipPos.w();
-
-                // Only draw if it's within the view frustum (Z is -1 to 1 in NDC)
-                if (ndcZ >= -1.0f && ndcZ <= 1.0f) {
-                    // Convert NDC to Pixel Coordinates
-                    int x = (int)((ndcX + 1.0f) * 0.5f * width());
-                    int y = (int)((1.0f - ndcY) * 0.5f * height());
-
-                    // Draw a giant marker to confirm it exists
-                    painter.setBrush(Qt::green);
-                    painter.setPen(QPen(Qt::white, 4));
-                    painter.drawEllipse(QPoint(x, y), 20, 20);
-                    
-                    painter.setFont(QFont("Arial", 16, QFont::Bold));
-                    painter.drawText(x + 25, y, "NP");
-                }
-            }
-            ***************** END TEST **********************/
 
             glDisable (GL_DEPTH_TEST);
             glDisable (GL_CULL_FACE);
@@ -510,10 +603,8 @@ namespace SimCore
 
                                 // Draw Content
                                 painter.setPen (Qt::white);
-//                                painter.setFont (QFont ("Arial", Globe::m_fontSize, QFont::Bold));
                                 painter.drawText (cardRect.adjusted (10, 10, -10, -10), Qt::AlignTop, Globe::m_selectedCity->name);
                                 
-//                                painter.setFont (QFont ("Arial", Globe::m_fontSize));
                                 painter.drawText (cardRect.adjusted (10, 35, -10, -10), Qt::AlignTop, Globe::m_selectedCity->extraInfo);
                             }
                         }
@@ -526,11 +617,12 @@ namespace SimCore
 
         } // if (m_showCities)
 
-
         /******************* end painter ***************/
 
         updateStatus();
-    } // END: MyGLWidget::paintGL() 
+    } // END: MyGLWidget::paintGL()
+
+
 
     void MyGLWidget::resizeGL (int w, int h)
     {
@@ -550,7 +642,37 @@ namespace SimCore
 
     void MyGLWidget::keyPressEvent (QKeyEvent *event)
     {
-        if (event->key() == Qt::Key_Escape)
+        if (event->key() == Qt::Key_F)
+        {
+            if (Globe::m_selectedCity)
+            {
+                // Case 1 & 2: If a city is highlighted, move/place the filter there
+                ACE_GUARD (ACE_Thread_Mutex, mon, m_entityManager->m_vectorLock);
+
+                if (m_entityManager->m_tracker)
+                {
+                    m_entityManager->m_tracker->m_filterAnchor = Globe::m_selectedCity->position;
+                    m_entityManager->m_tracker->m_filterActive = true;
+                    SIM_LOG (LM_INFO, "Sensor filter placed at: " + Globe::m_selectedCity->name);
+                    SIM_LOG (LM_INFO, QString ("Location:\n x %1,\n y %2,\n z %3\n").arg (Globe::m_selectedCity->position.x())
+                                                                                    .arg (Globe::m_selectedCity->position.y())
+                                                                                    .arg (Globe::m_selectedCity->position.z())
+                            );
+                }
+            }
+            else
+            {
+                // Case 3: If no city is selected, toggle the filter off
+                ACE_GUARD (ACE_Thread_Mutex, mon, m_entityManager->m_vectorLock);
+
+                if (m_entityManager->m_tracker)
+                {
+                    m_entityManager->m_tracker->m_filterActive = !m_entityManager->m_tracker->m_filterActive;
+                    SIM_LOG (LM_INFO, m_entityManager->m_tracker->m_filterActive ? "Filter re-enabled" : "Filter disabled");
+                }
+            }
+        }
+        else if (event->key() == Qt::Key_Escape)
         {
             close();
         }
@@ -891,12 +1013,12 @@ namespace SimCore
 
     void MyGLWidget::initializeGlobePosition()
     {
-        Globe::m_zoom = Globe::DEFAULT_ZOOM;
-        Globe::m_offset = Globe::DEFAULT_OFFSET;
-        Globe::m_liveOffset = Globe::DEFAULT_LIVEOFFSET;
-        Globe::m_liveTilt = Globe::DEFAULT_TILT;
-        Globe::m_rotation = Globe::DEFAULT_ROTATION;
-        Globe::m_ambientLevel = Globe::DEFAULT_AMBIENT;
+        Globe::m_zoom = ::Config::getInstance().DEFAULT_ZOOM;
+        Globe::m_offset = ::Config::getInstance().DEFAULT_OFFSET;
+        Globe::m_liveOffset = ::Config::getInstance().DEFAULT_LIVEOFFSET;
+        Globe::m_liveTilt = ::Config::getInstance().DEFAULT_TILT;
+        Globe::m_rotation = ::Config::getInstance().DEFAULT_ROTATION;
+        Globe::m_ambientLevel = ::Config::getInstance().DEFAULT_AMBIENT;
 
         SIM_LOG (LM_INFO, "Globe reset to default position");
     }
@@ -1144,7 +1266,7 @@ namespace SimCore
     {
         std::cout << "Checking data cache " << groupKey.toStdString() << std::endl;
 
-        QDir dir (Globe::DATA_DIR_PATH);
+        QDir dir (::Config::getInstance().DATA_DIR_PATH);
         QString filter = QString ("satellites_%1_*.tle").arg (groupKey.toLower());
 
         QStringList filters;
@@ -1189,4 +1311,20 @@ namespace SimCore
         // If no files or they are old, trigger a fresh download
         m_satelliteSource->requestGroup (groupKey);
     }
-}    
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

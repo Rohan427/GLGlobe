@@ -1,0 +1,49 @@
+// Modification of any value can severely screw up the application
+
+{
+    "defaultLiveOffset" : -90.0, //Earth tilt offset in degrees
+    "defaultTilt" : 23.5,
+    // These are a QVector2D, x : pitch, y : yaw
+    "defaultRotation1" : 0.0,
+    "defaultRotation2" : 0.0,
+    "defaultAmbient" : 0.15,
+    "defaultRadius" : 1.0,
+    "defaultSectors" : 64,
+    "defaultStacks" : 64,
+    "defaultPerspective" : 45.0,
+    "defaultFontSize" : 16,
+    "defaultMarkerSize" : 5.0,
+    "defaultZoom" : 1.0,
+    // These are a QVector2D
+    "defaultOffset1" : 0.0,
+    "defaultOffset2" : 0.0,
+    "labelHeightOffset" : 0.005, // City label height above surface
+    "threadSleepTime" : 1000,  // 1ms tick
+    "maxThreads" : 32, // The maximum number of threads allocated to the application
+    "dataDirPath" : "data", // Ralative to the executable dir
+    "dataFileSatSuffix" : "sat.tle",
+    "celestrakUrl" : "https://celestrak.org/NORAD/elements/gp.php?", // URL for Celestrak API
+    "fontPath" : "fonts",
+    "detectionRange" : 5000 // Kilometers
+    "defaultCenterx" : 0.0,
+    "defaultCentery" : 0.0,
+    "defaultCenterz" : 0.0,
+    // Satellite color
+    "satColorR" : 1.0,
+    "satColorG" : 0.0,
+    "satColorB" : 1.0,
+    // Missile color(incoming)
+    "misColorR" : 0.0,
+    "misColorG" : 1.0,
+    "misColorB" : 1.0,
+    // Range ring color
+    "rngRingColorR" : 0.0,
+    "rngRingColorG" : 1.0,
+    "rngRingColorB" : 1.0,
+    // City color
+    "cityColorR" : 0.0,
+    "cityColorG" : 1.0,
+    "cityColorB" : 1.0
+    // Range ring delta (kilometers)
+    "rangeRingDelta" : 500.0
+}

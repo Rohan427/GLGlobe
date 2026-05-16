@@ -5,6 +5,7 @@
 
 // SimCore/EntityManager.hxx
 #include "BaseEntity.hxx"
+#include "Tracking.hxx"
 #include <vector>
 #include <atomic>
 #include <algorithm>
@@ -29,6 +30,8 @@ namespace SimCore
         public:
             static ACE_Thread_Mutex m_vectorLock; // Protects the vector itself
             static bool m_updatingEntities;
+            Objects::Tracking* m_tracker;
+
             /************* Functions ******************/
 
             static EntityManager* instance();
@@ -62,12 +65,12 @@ namespace SimCore
             virtual int svc() override
             {
                 m_barrier->wait();
-                int localThreadId = m_threadIndexer.fetch_add (1) % Globe::MAX_THREADS;
+                int localThreadId = m_threadIndexer.fetch_add (1) % ::Config::getInstance().MAX_THREADS;
 
 /*                  AFFINITY CODE IF I WANT TO USE IT
                 // 1. Determine which logical core this specific thread should live on
                 int threadIdx = m_threadIndexer.fetch_add(1) % 32;
-                
+
                 cpu_set_t cpuset;
                 CPU_ZERO(&cpuset);
                 CPU_SET(threadIdx, &cpuset);
@@ -79,22 +82,24 @@ namespace SimCore
 
                 while (!m_done && !this->msg_queue()->deactivated())
                 {
-                    qint64 now = QDateTime::currentDateTimeUtc().toMSecsSinceEpoch();
+                    auto now = std::chrono::high_resolution_clock::now();
+                    auto duration = now.time_since_epoch();
+                    qint64 msecs = std::chrono::duration_cast<std::chrono::milliseconds> (duration).count();
 
                     // Use tryacquire() to prevent the "Mutex Storm" from blocking the GUI
                     if (m_vectorLock.tryacquire() == 0)
                     { 
-                        for (size_t i = (size_t)localThreadId; i < m_entities.size(); i += Globe::MAX_THREADS)
+                        for (size_t i = (size_t)localThreadId; i < m_entities.size(); i += ::Config::getInstance().MAX_THREADS)
                         {
                             BaseEntity* entity = m_entities[i];
 
                             if (!m_entities.empty() && entity)
                             {
-                                m_entities[i]->updatePhysics (now, Globe::m_liveOffset);
+                                m_entities[i]->updatePhysics (msecs, Globe::m_liveOffset);
                             }
                         }
 
-                        m_vectorLock.release(); 
+                        m_vectorLock.release();
                     }
                     else
                     {
@@ -102,7 +107,8 @@ namespace SimCore
                         ACE_Thread::yield();
                     }
 
-                    ACE_OS::sleep (ACE_Time_Value (0, Globe::THREAD_SLEEP_TIME));
+//                    ACE_Thread::yield();
+                    ACE_OS::sleep (ACE_Time_Value (0, ::Config::getInstance().THREAD_SLEEP_TIME));
                 }
 
                 return 0;
@@ -119,7 +125,7 @@ namespace SimCore
             static void* parsingTask (void* arg);
             void addBatch (const std::vector<BaseEntity*>&& newEntities);
             void removeByGroup (const QString& groupKey);
-        
+
         public slots: // Or just public:
             void processTleData (const QString& data, const QString& group);
     };

@@ -3,12 +3,14 @@
 #ifndef GLOBE_HXX
 #define GLOBE_HXX
 
+#include "Config.hxx"
 #include <QElapsedTimer>
 #include <QOpenGLShaderProgram>
 #include <QPainter>
 #include <utility>
 #include <map>
 #include <string>
+#include <SGP4.h>
 
 struct ParsingTaskData
 {
@@ -28,53 +30,32 @@ namespace Globe
     //class Globe
     //{
     //    public:
-            // Initial settings constants
-            inline static const float DEFAULT_LIVEOFFSET = -90.0f;
-            inline static const float DEFAULT_TILT = 23.5f;
-            inline static const QVector2D DEFAULT_ROTATION = QVector2D (0.0f, 0.0f); // x = pitch, y = yaw
-            inline static const float DEFAULT_AMBIENT = 0.15f;
-            inline static const float DEFAULT_RADIUS = 1.5f;
-            inline static const int DEFAULT_SECTORS = 64;
-            inline static const int DEFAULT_STACKS = 64;
-            inline static const float DEFAULT_PERSPECTIVE = 45.0f;
-            inline static const int DEFAULT_FONT_SIZE = 16;
-            inline static const float DEFAULT_MARKER_SIZE = 5.0f;
-            inline static const float DEFAULT_ZOOM = 1.0F;
-            inline static const QVector2D DEFAULT_OFFSET = QVector2D (0.0f, 0.0f);
-            inline static const float LABEL_HEIGHT_OFFSET = 0.005f;
-            inline static const int THREAD_SLEEP_TIME = 100000;  // 50ms tick
-            inline static const int MAX_THREADS = 32;
-            inline static const QString DATA_DIR_PATH = "data";
-            inline static const QString DATA_FILE_SAT_SUFFIX = "sat.tle";
-            inline static const QString CELESTRAK_URL = "https://celestrak.org/NORAD/elements/gp.php?";
-            inline static const QString FONT_PATH = "fonts";
-
             // Shared matrix variables
             inline QMatrix4x4 modelMatrix;
             inline QMatrix4x4 viewMatrix;
             inline QMatrix4x4 projectMatrix;
-            inline float g_perspective = DEFAULT_PERSPECTIVE;
+            inline float g_perspective;
 
             // Shader program for compute tasks
             inline QOpenGLShaderProgram* m_computeProgram;
             inline QElapsedTimer timer;            
 
             // globe settings (with defaults from above)
-            inline float m_liveOffset = DEFAULT_LIVEOFFSET;
-            inline float m_liveTilt = DEFAULT_TILT;
-            inline QVector2D m_rotation = DEFAULT_ROTATION; // x = pitch, y = yaw
-            inline float m_zoom = DEFAULT_ZOOM;
-            inline QVector2D m_offset = DEFAULT_OFFSET;   // for dragging
-            inline float m_ambientLevel = DEFAULT_AMBIENT;
+            inline float m_liveOffset;
+            inline float m_liveTilt;
+            inline QVector2D m_rotation; // x = pitch, y = yaw
+            inline float m_zoom;
+            inline QVector2D m_offset;   // for dragging
+            inline float m_ambientLevel;
 
              // Radius 1.5, 64 sectors/stacks
-            inline const float globeRadius = DEFAULT_RADIUS;
-            inline const int globeSectors = DEFAULT_SECTORS;
-            inline const int globeStacks = DEFAULT_STACKS;
+            inline float globeRadius;
+            inline int globeSectors;
+            inline int globeStacks;
 
             // Height of labels and points above the globe. Put labels above globe, but not too far or they will "slide" due
             // to perspective and zoom changes
-            inline float cityLabelHeight = globeRadius + LABEL_HEIGHT_OFFSET;
+            inline float cityLabelHeight;
 
             struct texSizes
             {
@@ -119,8 +100,8 @@ namespace Globe
             inline QColor m_cityColor = Qt::cyan;
             inline QColor m_textColor = Qt::white;
             inline QColor m_shadowColor = Qt::black;
-            inline float m_markerSize = DEFAULT_MARKER_SIZE;
-            inline int m_fontSize = DEFAULT_FONT_SIZE; // Default size
+            inline float m_markerSize;
+            inline int m_fontSize; // Default size
 
             // City handling
             struct City

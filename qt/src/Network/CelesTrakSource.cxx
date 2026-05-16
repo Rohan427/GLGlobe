@@ -13,7 +13,7 @@ namespace Network
                            .arg (QDateTime::currentDateTime().toString ("yyyyMMdd_hhmm"));
 
         // 2. Build the dynamic CelesTrak URL
-        QString baseUrl = Globe::CELESTRAK_URL;
+        QString baseUrl = ::Config::getInstance().CELESTRAK_URL;
         QString query = QString ("GROUP=%1&FORMAT=tle").arg (groupKey.toLower());
         QUrl url (baseUrl + query);
 
@@ -23,7 +23,7 @@ namespace Network
         this->initiateDownload (url, fileName, groupKey);
     }
 
-    void CelesTrakSource::initiateDownload(const QUrl& url, const QString& localPath, const QString& groupKey)
+    void CelesTrakSource::initiateDownload (const QUrl& url, const QString& localPath, const QString& groupKey)
     {
 //        std::cout << "CelesTrakSource::initiateDownload: Initiating download " << groupKey.toStdString() << std::endl;
 

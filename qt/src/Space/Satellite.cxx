@@ -27,27 +27,42 @@ namespace Space
             return;
         }
 
-        // DEBUG
-        //m_updateCount++;
 
-        //if (m_updateCount % 100 == 0)
-        //{
-        //    std::cout << m_name.toStdString() << " update count: " << m_updateCount << std::endl;
-        //}
+        //gravconsttype whichconst = wgs72; // Ensure this matches your TLE initialization
+        //double tkmper, mu, radiusearthkm, vkkmper, j2, j3, j4, j3oj2;
+
+        //// This populates the exact parameters the library is using
+        //getgravconst(whichconst, tkmper, mu, radiusearthkm, vkkmper, j2, j3, j4, j3oj2);
+
+
 
         // Convert msecs to SGP4 DateTime
         QDateTime qtTime = QDateTime::fromMSecsSinceEpoch (msecs, Qt::UTC);
+        int millisecs = qtTime.time().msec(); 
+        int microsecs = millisecs * 1000;
 
         libsgp4::DateTime dt (qtTime.date().year(), qtTime.date().month(), qtTime.date().day(),
-                              qtTime.time().hour(), qtTime.time().minute(), qtTime.time().second());
+                              qtTime.time().hour(), qtTime.time().minute(), qtTime.time().second(),
+                              microsecs
+                             );
 
         try
         {
             libsgp4::Eci eci = m_propagator->FindPosition (dt);
             libsgp4::CoordGeodetic geo = eci.ToGeodetic();
 
-            float altMultiplier = (6371.0f + (float)geo.altitude) / 6371.0f;
-            QVector3D newPos = Utility::latLonToXYZRad (liveOffset, geo.latitude, geo.longitude, Globe::globeRadius * altMultiplier);
+            // This is defined inside libsgp4 as kXKMPER (typically 6378.135)
+            const double SGP4_EARTH_RADIUS = libsgp4::kXKMPER;
+
+            // Map the true physical altitude to your rendering engine's scale
+            // scaleFactor = (visual units per real-world kilometer)
+            double scaleFactor = Globe::globeRadius / SGP4_EARTH_RADIUS;
+            float visualSatelliteRadius = Globe::globeRadius + ((float)geo.altitude * scaleFactor);
+
+            // float altMultiplier = (6371.0f + (float)geo.altitude) / 6371.0f;
+            //QVector3D newPos = Utility::latLonToXYZRad (liveOffset, geo.latitude, geo.longitude, Globe::globeRadius * altMultiplier);
+
+            QVector3D newPos = Utility::latLonToXYZRad (liveOffset, geo.latitude, geo.longitude, visualSatelliteRadius);
 
             ACE_GUARD (ACE_Thread_Mutex, ace_mon, m_posLock);
             m_currentPos = newPos;
@@ -55,6 +70,35 @@ namespace Space
         catch (...)
         {
         }
+
+
+        /* Possible code for calculation of LOS from a ground station
+
+        try
+        {
+            libsgp4::Eci eci = m_propagator->FindPosition (dt);
+            
+            // Calculate look angles from Honolulu to this satellite
+            libsgp4::CoordTopocentric look_angles = honolulu_station.GetLookAngle(eci);
+
+            // Convert elevation from radians to degrees
+            double elevation_deg = look_angles.elevation * (180.0 / M_PI);
+            double azimuth_deg   = look_angles.azimuth * (180.0 / M_PI);
+            double range_km      = look_angles.range;
+
+            if (elevation_deg >= 0.0) {
+                // THE SATELLITE IS VISIBLE!
+                // You have a guaranteed, geometrically accurate line-of-sight.
+            } else {
+                // The satellite is below Honolulu's horizon.
+            }
+        }
+        catch (...)
+        {
+            // Handle SGP4 exceptions
+        }
+
+*/
     }
 
     QVector3D Satellite::getPosition() const

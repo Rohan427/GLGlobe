@@ -71,10 +71,12 @@ set (HEADER_ROOT ${CMAKE_SOURCE_DIR}/include)
 set (HEADER_FILES
     ${HEADER_ROOT}
     "$ENV{SPG4_HEADERS}"
+    "$ENV{XTRA_INCLUDE}/rl/"
 )
 
 # Define your source files
 set (SOURCES
+    ${SOURCE_ROOT}/SimCore/Config.cxx
     ${SOURCE_ROOT}/SimCore/Main.cxx
     ${SOURCE_ROOT}/SimCore/MainWindow.cxx
     ${SOURCE_ROOT}/SimCore/MyGLWidget.cxx
@@ -87,6 +89,7 @@ set (SOURCES
 set (HEADERS
     "$ENV{SPG4_HEADERS}/SGP4.h"
     "$ENV{SPG4_HEADERS}/Tle.h"
+    ${HEADER_ROOT}/Tracking.hxx
     ${HEADER_ROOT}/MainWindow.hxx
     ${HEADER_ROOT}/MyGLWidget.hxx
     ${HEADER_ROOT}/LegacyGLApp.hxx
@@ -95,8 +98,11 @@ set (HEADERS
     ${HEADER_ROOT}/Utility.hxx
     ${HEADER_ROOT}/CelesTrakSource.hxx
     ${HEADER_ROOT}/Globe.hxx
+    ${HEADER_ROOT}/Config.hxx
     ${HEADER_ROOT}/BaseDataSource.hxx
     ${HEADER_ROOT}/FontManager.hxx
+    "$ENV{XTRA_INCLUDE}/rl/Json.hxx"
+    "$ENV{XTRA_INCLUDE}/rl/Configuration.hxx"
 )
 
 # Define output folders
@@ -120,6 +126,7 @@ target_link_libraries (LegacyGLApp PRIVATE
     OpenGL::GL
     "$ENV{SPG4_LIB}/libsgp4s.so"
     ${ACE_LIBRARY}
+    "$ENV{XTRA_LIB}/rel/rl/librllibconfig.so"
 )
 
 target_include_directories (LegacyGLApp PRIVATE
@@ -156,20 +163,20 @@ add_custom_target (copy_assets ALL DEPENDS ${SHADER_DEST_FILES})
 # )
 
 
-add_custom_command (TARGET LegacyGLApp POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${SOURCE_ROOT}/objects/shaders/Satellite.vert"
-            "$<TARGET_FILE_DIR:LegacyGLApp>/shaders"
-)
+#add_custom_command (TARGET LegacyGLApp POST_BUILD
+#    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+#            "${SOURCE_ROOT}/objects/shaders/Satellite.vert"
+#            "$<TARGET_FILE_DIR:LegacyGLApp>/shaders"
+#)
 
-add_custom_command (TARGET LegacyGLApp POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "run"
-            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/run"
-)
+#add_custom_command (TARGET LegacyGLApp POST_BUILD
+#    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+#            "run"
+#            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/run"
+#)
 
-add_custom_command (TARGET LegacyGLApp POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${SOURCE_ROOT}/../../textures"
-            "$<TARGET_FILE_DIR:LegacyGLApp>/textures"
-)
+#add_custom_command (TARGET LegacyGLApp POST_BUILD
+#    COMMAND ${CMAKE_COMMAND} -E copy_directory
+#            "${SOURCE_ROOT}/../../textures"
+#            "$<TARGET_FILE_DIR:LegacyGLApp>/textures"
+#)

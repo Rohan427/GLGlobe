@@ -59,7 +59,7 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
     QHBoxLayout* mainLayout = new QHBoxLayout();
     rootLayout->addLayout (mainLayout);
 
-    // 1. OpenGL Viewport (Left)
+    // OpenGL Viewport (Left)
     glViewport = new MyGLWidget (this);
     mainLayout->addWidget (glViewport, 1); // Stretch factor of 1
 
@@ -111,13 +111,13 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
     sourcesBtn->setMenu (sourcesMenu);
     toolbar->addWidget (sourcesBtn);
 
-    // 2. Sidebar (Right)
-    // A. Initialize the Sidebar Container (CRITICAL: Assign to member variable)
+    // Sidebar (Right)
+    // Initialize the Sidebar Container (CRITICAL: Assign to member variable)
     this->sidebarContainer = new QWidget(this);
     this->sidebarContainer->setFixedWidth (450);
     QVBoxLayout* sidebar = new QVBoxLayout (this->sidebarContainer);
 
-    // C. Sidebar buttons
+    // Sidebar buttons
     QPushButton* refreshBtn = new QPushButton ("Refresh Texture", this);
     sidebar->addWidget (refreshBtn);
     QPushButton* resetBtn = new QPushButton ("Reset View", this);
@@ -127,12 +127,12 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
     QVBoxLayout* controlLayout = new QVBoxLayout();
 
     // Spin Offset Control
-    // 1. Add the Label to the controlLayout
+    // Add the Label to the controlLayout
     QLabel* offsetLabel = new QLabel ("UTC Spin Offset:", this);
     offsetLabel->setStyleSheet ("font-weight: bold; margin-top: 5px;");
     controlLayout->addWidget (offsetLabel);
 
-    // 2. Add the SpinBox to the SAME controlLayout
+    // Add the SpinBox to the SAME controlLayout
     QDoubleSpinBox* offsetSpin = new QDoubleSpinBox(this);
     offsetSpin->setRange (-360.0, 360.0);
     offsetSpin->setValue (-90.0);
@@ -166,7 +166,6 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
     connect (tiltSpin, &QDoubleSpinBox::valueChanged, glViewport, &MyGLWidget::setAxialTilt);
     connect (ambientSpin, &QDoubleSpinBox::valueChanged, glViewport, &MyGLWidget::setAmbientLevel);
     connect (toggleCityAct, &QAction::toggled, glViewport, &MyGLWidget::toggleCities);
-//    connect (updateSatsAct, &QAction::triggered, satelliteSource, &Network::BaseDataSource::requestUpdate);
 
     //********** END Controls (Remove when complete **********//
 
@@ -192,7 +191,7 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
 
     /****** End Collapsible sidebar ******/
 
-    // D. Status label:
+    // Status label:
     QLabel* statusLabel = new QLabel ("Zoom: 1.00 | Rot: 0.0, 0.0", this);
     statusLabel->setAlignment (Qt::AlignLeft | Qt::AlignTop);
     statusLabel->setStyleSheet ("font-family: 'DejaVu Sans Mono', 'Courier New', monospace; "
@@ -208,13 +207,13 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
     // Connect the widget signal to the label's text slot
     connect (glViewport, &MyGLWidget::cameraChanged, statusLabel, &QLabel::setText);
     
-    // E. Console display
+    // Console display
     console = new QPlainTextEdit (this);
     console->setReadOnly (true);
     console->setPlaceholderText ("System Console...");
     sidebar->addWidget (console);
 
-    // F. Connect "Refresh" button to the GL logic
+    // Connect "Refresh" button to the GL logic
     connect (refreshBtn, &QPushButton::clicked, [this]() 
                 {
                     console->appendPlainText ("> Triggering Texture Refresh...");
@@ -222,7 +221,7 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
                 }
             );
 
-    // G. Connect "Reset" button to the GL logic
+    // Connect "Reset" button to the GL logic
     connect (resetBtn, &QPushButton::clicked, glViewport, &MyGLWidget::resetView);
     connect (resetBtn, &QPushButton::clicked, [this]()
                 {
@@ -233,14 +232,12 @@ MainWindow::MainWindow (QWidget *parent) : QMainWindow (parent)
     QShortcut* homeKey = new QShortcut (QKeySequence (Qt::Key_H), this);
     connect (homeKey, &QShortcut::activated, glViewport, &MyGLWidget::resetView);
 
-    // 3. Add the CONTAINER to the mainLayout instead of just the layout
+    // Add the CONTAINER to the mainLayout instead of just the layout
     mainLayout->addWidget (glViewport, 1);       // OpenGL takes the rest
     mainLayout->addWidget (sidebarContainer, 0); // Sidebar stays 300px
 
     // 4. Set a larger initial window size
     this->setMinimumSize (1920, 1080); // Start at 1080p size even on 4K
-
-
 }
 
 MainWindow* MainWindow::instance()
