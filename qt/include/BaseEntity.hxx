@@ -26,10 +26,8 @@
 #include <ace/Thread_Mutex.h>
 #include "ace/RW_Thread_Mutex.h"
 #include <ace/Guard_T.h>
-#include <ace/Barrier.h>
-#include <ace/Task.h>
-#include "ace/Thread.h"
 #include <ace/Log_Msg.h>
+#include <atomic>
 #include "Utility.hxx"
 
 //#include "MainWindow.hxx"

@@ -19,6 +19,8 @@
 #include <QtNetwork/QNetworkRequest>
 #include <QtNetwork/QNetworkReply>
 #include "CelesTrakSource.hxx"
+#include <QCloseEvent>
+#include <QDebug>
 
 namespace SimCore
 {
@@ -43,6 +45,8 @@ namespace SimCore
             MyGLWidget* glViewport;
             Network::CelesTrakSource* satelliteSource;
             QAction* updateSatsAct;
+
+            void closeEvent (QCloseEvent *event);
 
         public slots:
             void toggleSidebar()

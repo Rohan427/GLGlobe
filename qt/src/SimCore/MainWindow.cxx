@@ -263,3 +263,33 @@ QAction* MainWindow::getUpdateSatsAct()
 {
     return updateSatsAct;
 }
+
+void MainWindow::closeEvent (QCloseEvent *event)
+{
+    qDebug() << "MainWindow close event triggered. Cleaning up simulation threads...";
+
+    // 1. Defensively chain pointer checks before calling stopSimulation()
+    if (this->glViewport != nullptr)
+    {
+        EntityManager* manager = this->glViewport->getEntityManager();
+        
+        if (manager != nullptr)
+        {
+            // This safely blocks the GUI thread for a few milliseconds 
+            // until all background workers wrap up and exit cleanly
+            manager->stopSimulation();
+            qDebug() << "Simulation threads successfully reaped.";
+        }
+        else
+        {
+            qDebug() << "Warning: EntityManager instance was already null during close event.";
+        }
+    }
+    else
+    {
+        qDebug() << "Warning: glViewport instance was null during close event.";
+    }
+
+    // 2. Accept the event to let Qt destroy the window and its child widgets natively
+    event->accept();
+}

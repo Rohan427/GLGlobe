@@ -209,13 +209,15 @@ namespace SimCore
             SIM_LOG (LM_INFO, "Network-to-Simulation bridge connected.");
         }
 
-        // Activate the 32 ACE threads
-        m_entityManager->startSimulation (::Config::getInstance().MAX_THREADS);
+        // Activate the FPU threads
+        m_entityManager->startSimulation (::Config::getInstance().MAX_FPU_THREADS);
     }
 
 
     void MyGLWidget::paintGL() 
     {
+        SIM_LOG (LM_DEBUG, "paintGL");
+
         glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glEnable (GL_DEPTH_TEST);
         glDepthFunc (GL_LESS);
@@ -300,6 +302,7 @@ namespace SimCore
 
         m_program->release();
 
+        SIM_LOG (LM_DEBUG, "paintGL Initialize sensor range");
         // Used for sensor filter
         float glDetectionRange = m_entityManager->m_tracker->m_detectionRange - Globe::globeRadius;
 
@@ -310,6 +313,7 @@ namespace SimCore
         QVector4D rotatedCenter4 = model * QVector4D (localFilterCenter, 1.0f);
         QVector3D worldFilterCenter = rotatedCenter4.toVector3D();
 
+        SIM_LOG (LM_DEBUG, "paintGL test if sensors are enabled");
         // For range rings
         if (m_entityManager->m_tracker->m_filterActive)
         {
@@ -414,7 +418,7 @@ namespace SimCore
             glDisable (GL_BLEND);
         }
 
-
+        SIM_LOG (LM_DEBUG, "paintGL Begin satellite processing");
         /******************** Draw satellites *******************/
         // 1. Gather latest positions from ACE threads
         if (setActiveShader ("Satellites"))
@@ -630,6 +634,8 @@ namespace SimCore
         /******************* end painter ***************/
 
         updateStatus();
+
+        SIM_LOG (LM_DEBUG, "paintGL End");
     } // END: MyGLWidget::paintGL()
 
 

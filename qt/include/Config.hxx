@@ -34,7 +34,7 @@ class Config : public configuration::Configuration
         float DEFAULT_ZOOM;
         QVector2D DEFAULT_OFFSET;
         float LABEL_HEIGHT_OFFSET;
-        int THREAD_SLEEP_TIME; // 50ms tick
+        int THREAD_SLEEP_TIME; // suggest 1ms tick for performance
         int MAX_THREADS;
         QString DATA_DIR_PATH;
         QString DATA_FILE_SAT_SUFFIX;
@@ -47,6 +47,8 @@ class Config : public configuration::Configuration
         QVector3D CITY_COLOR;
         QVector3D RANGE_RING_COLOR;
         float RANGE_RING_DELTA;
+        unsigned int DEFAULT_THREAD_SLEEP = 1000; // Fallback for bad configuration files
+        unsigned int MAX_FPU_THREADS = 64;
 
         struct ConfigErr
         {

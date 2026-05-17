@@ -53,7 +53,6 @@ namespace SimCore
         }
     }
 
-
     // Static helper for the dedicated parsing thread
     void* EntityManager::parsingTask (void* arg)
     {
@@ -235,17 +234,53 @@ namespace SimCore
     {
         m_tracker = new Objects::Tracking();
         s_instance = this;
+        m_done = false;
+        m_threadIndexer = 0;
         m_numThreads = numThreads;
+        
+        // 1. DETERMINE SYSTEM HARDWARE AND EXECUTION PERMISSIONS
+        // The resulting list can be used for spawning other threads and task later
+        m_selectedTier = SystemCapabilities::AnalyzeTopologyAndPermissions (m_hardwareCorePool);
 
-        // 32 workers + 1 main thread = 33
-        m_barrier = new ACE_Barrier (m_numThreads + 1); 
+        if (m_hardwareCorePool.size() < m_numThreads)
+        {
+            SIM_LOG (LM_INFO, QString ("Found less than %1 cores available, setting thread count to %2")
+                                       .arg (m_numThreads)
+                                       .arg (m_hardwareCorePool.size())
+                                      );
+
+            m_numThreads = m_hardwareCorePool.size();
+        }
+
+        // 2. VERBOSE LOGGING FOR ENTERPRISE ENVIRONMENT MANAGEMENT
+        QString tierName;
+
+        switch (m_selectedTier)
+        {
+            case SchedulingTier::RealTimeAndAffinity:
+                tierName = "Tier 1: [REAL-TIME SCHED_FIFO + INTUITIVE HARDWARE CORE PINNING]";
+                break;
+
+            case SchedulingTier::AffinityOnly:
+                tierName = "Tier 2: [STANDARD SCHEDULER TIMESHARING + INTUITIVE HARDWARE CORE PINNING]";
+                break;
+
+            case SchedulingTier::StandardFallback:
+                tierName = "Tier 3: [STANDARD FALLBACK - SINGLE CORE OR OS CONTEXT ACCESS BLOCKED]";
+                break;
+        }
+
+        SIM_LOG (LM_INFO, QString ("System Initialization: Selected Operating Framework: %1").arg (tierName));
+        SIM_LOG (LM_INFO, QString ("Detected Total Hardware Units: %1 available processing paths.").arg (m_numThreads));
+
+        // 3. SYNCHRONIZE BARRIER LIFECYCLE HANDSHAKE
+        m_barrier = new ACE_Barrier (m_numThreads + 1);
+        
+        // Launch threads as dedicated kernel-level entities (THR_BOUND)
         this->activate (THR_NEW_LWP | THR_JOINABLE | THR_BOUND, m_numThreads);
-
-        // This blocks the MAIN thread until all numThreads workers hit their own wait()
-        // It is a very fast "handshake," not a long-term freeze.
+        
         m_barrier->wait();
-
-        SIM_LOG (LM_DEBUG, QString ("All %1 ACE threads synchronized and running.").arg (m_numThreads));
+        SIM_LOG (LM_DEBUG, QString ("All %1 SGP4 Simulation threads pinned, scaled, and synchronized.").arg (m_numThreads));
     }
 
     void EntityManager::removeByGroup (const QString& groupKey)
@@ -294,5 +329,202 @@ namespace SimCore
         
 
         SIM_LOG (LM_INFO, QString ("Removed group %1. Current count: %2").arg (groupKey).arg (m_entities.size()));
+    }
+
+
+    int EntityManager::svc() 
+    {
+        // 1. Hold threads until startup mapping parameters are initialized
+        m_barrier->wait();
+
+        int localThreadId = m_threadIndexer.fetch_add (1) % m_numThreads;
+        SIM_LOG (LM_DEBUG, QString ("Starting service thread for thread %1").arg (localThreadId));
+
+        ACE_thread_t nativeThreadHandle = ACE_OS::thr_self();
+        size_t availablePoolSize = static_cast<int> (m_numThreads);
+
+        // =========================================================================
+        // DYNAMIC SCHEDULER PINNING PIPELINE (BOUND-SAFE REPAIR)
+        // =========================================================================
+        if (m_selectedTier != SchedulingTier::StandardFallback && !m_hardwareCorePool.empty())
+        {
+            try
+            {
+ //               availablePoolSize = m_hardwareCorePool.size();
+
+                SIM_LOG (LM_DEBUG, QString ("Core selection for thread %1").arg (localThreadId));
+                int targetHardwareLogicalId = 0;
+                bool isHT = false;
+
+                if (availablePoolSize > 1)
+                {
+                    // Stride across your core matrix safely, leaving Core 0 open for graphics
+                    size_t poolOffset = (static_cast<size_t> (localThreadId) % (availablePoolSize - 1)) + 1;
+                    
+                    // PRODUCTION PROTECTION: Force bounds checking via .at() to prevent core dumps
+                    const HardwareCore& assignedTargetCore = m_hardwareCorePool.at (poolOffset);
+                    targetHardwareLogicalId = assignedTargetCore.logicalId;
+                    isHT = assignedTargetCore.isHTSibling;
+
+                    SIM_LOG (LM_DEBUG, QString ("Core selected for thread %1 is %2")
+                             .arg (localThreadId)
+                             .arg (targetHardwareLogicalId)
+                            );
+                }
+                else
+                {
+                    const HardwareCore& assignedTargetCore = m_hardwareCorePool.at (0);
+                    targetHardwareLogicalId = assignedTargetCore.logicalId;
+                    isHT = assignedTargetCore.isHTSibling;
+                    SIM_LOG (LM_DEBUG, QString ("Only one core available. Core selected for thread %1 is %2")
+                             .arg (localThreadId)
+                             .arg (targetHardwareLogicalId)
+                            );
+                }
+
+                SIM_LOG (LM_DEBUG, QString ("Pinning CPU thread %1").arg (targetHardwareLogicalId));
+                cpu_set_t cpuset;
+                CPU_ZERO (&cpuset);
+                CPU_SET (targetHardwareLogicalId, &cpuset);
+                
+                int pinStatus = ::pthread_setaffinity_np (nativeThreadHandle, sizeof (cpu_set_t), &cpuset);
+                
+                if (pinStatus == 0 && isHT)
+                {
+                    SIM_LOG (LM_DEBUG, QString("Thread %1: Pinned to Hyperthreaded core sibling %2.")
+                             .arg (localThreadId)
+                             .arg (targetHardwareLogicalId)
+                            );
+                }
+                else
+                {
+                    SIM_LOG (LM_DEBUG, QString("Thread %1: Pinned to non-HT core %2.")
+                             .arg (localThreadId)
+                             .arg (targetHardwareLogicalId)
+                            );
+                }
+
+                // Apply priority metrics based on discovered system configurations
+                if (m_selectedTier == SchedulingTier::RealTimeAndAffinity)
+                {
+                    SIM_LOG (LM_DEBUG, QString ("Setting affinity for thread %1").arg (localThreadId));
+                    struct sched_param param;
+                    param.sched_priority = 20;
+                    ::pthread_setschedparam (nativeThreadHandle, SCHED_FIFO, &param);
+                }
+                else
+                {
+#if defined (__linux__)
+                    SIM_LOG (LM_DEBUG, QString ("Setting standard affinity for thread %1").arg (localThreadId));
+                    ::setpriority (PRIO_PROCESS, 0, 5); // Fall back to safe background niceness
+#endif
+                }
+            } 
+            catch (const std::out_of_range& e)
+            {
+                // Catch array indexing errors cleanly without dumping core
+                SIM_LOG (LM_ERROR, QString ("Critical Exception: Worker %1 out of hardware topology bounds. Pinning skipped.")
+                        .arg (localThreadId));
+            }
+        }
+
+        // =========================================================================
+        // 2. DATA PROCESSING PIPELINE
+        // =========================================================================
+        while (!m_done)// && !this->msg_queue()->deactivated())
+        {
+            auto now = std::chrono::high_resolution_clock::now();
+            auto duration = now.time_since_epoch();
+            qint64 msecs = std::chrono::duration_cast<std::chrono::milliseconds> (duration).count();
+
+            SIM_LOG (LM_DEBUG, QString ("Aquire lock %1").arg (localThreadId));
+            // Use tryacquire() to prevent the "Mutex Storm" from blocking the GUI
+            if (m_vectorLock.tryacquire() == 0)
+            {
+                size_t currentSize = m_entities.size();
+                
+                if (currentSize > 0)
+                {
+                    SIM_LOG (LM_DEBUG, QString ("Loop updatePhysics %1").arg (localThreadId));
+
+                    for (size_t i = (size_t)localThreadId; i < m_entities.size(); i += availablePoolSize)
+                    {
+                        BaseEntity* entity = m_entities[i];
+
+                        if (!m_entities.empty() && entity)
+                        {
+                            m_entities[i]->updatePhysics (msecs, Globe::m_liveOffset);
+                        }
+                    }
+                }
+
+                SIM_LOG (LM_DEBUG, QString ("Release lock %1").arg (localThreadId));
+                m_vectorLock.release();
+            }
+            else
+            {
+                // If the lock is busy, yield immediately to let the GUI or Parser in
+                ACE_Thread::yield();
+            }
+
+            if (::Config::getInstance().THREAD_SLEEP_TIME > 0)
+            {
+                ACE_OS::sleep (ACE_Time_Value (0, ::Config::getInstance().THREAD_SLEEP_TIME));
+            }
+            else
+            {
+                ACE_OS::sleep (ACE_Time_Value (0, ::Config::getInstance().DEFAULT_THREAD_SLEEP));
+            }
+        }
+
+        return 0;
+    }
+
+    void EntityManager::stopSimulation()
+    {
+        SIM_LOG (LM_INFO, QString ("Initiating Multi-Threaded Simulation Shutdown Sequence..."));
+        
+        // 1. RAISE TRANSITION COOPERATIVE LIFECYCLE FLAGS
+        m_done = true;
+        
+        // Deactivate the underlying message queue to wake any threads blocked on it
+        this->msg_queue()->deactivate();
+
+        // 2. EXPLICITLY RETURN AFFINITY RESOURCING BACK TO THE GENERAL OPERATING POOL
+        // On systems running true real-time priorities (SCHED_FIFO), resetting the 
+        // scheduling parameters on shutdown ensures the cores are cleanly returned 
+        // to standard OS management, preventing lockups.
+        if (m_selectedTier == SchedulingTier::RealTimeAndAffinity)
+        {
+            long totalCores = ::sysconf (_SC_NPROCESSORS_ONLN);
+            cpu_set_t fullSystemMask;
+            CPU_ZERO (&fullSystemMask);
+
+            for (int i = 0; i < totalCores; ++i)
+            {
+                CPU_SET (i, &fullSystemMask);
+            }
+
+            struct sched_param standardParam;
+            standardParam.sched_priority = 0;
+
+            // Reset the main thread's parameters safely
+            ::pthread_setschedparam (ACE_OS::thr_self(), SCHED_OTHER, &standardParam);
+            ::pthread_setaffinity_np (ACE_OS::thr_self(), sizeof (cpu_set_t), &fullSystemMask);
+        }
+
+        // 3. REAP THE COMPUTE VECTOR THREAD POOL
+        // This blocks the shutdown sequence until all worker threads break 
+        // their loops and exit cleanly, avoiding memory leaks or dangling pointers.
+        this->wait(); 
+
+        // 4. CLEANUP DYNAMIC COMPONENT MEMORY ALLOCATIONS
+        if (m_barrier)
+        {
+            delete m_barrier;
+            m_barrier = nullptr;
+        }
+
+        SIM_LOG (LM_INFO, QString ("Simulation Shutdown Finalized Successfully. All threads reaped."));
     }
 }

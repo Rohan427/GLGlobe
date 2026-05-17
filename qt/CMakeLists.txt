@@ -101,6 +101,7 @@ set (HEADERS
     ${HEADER_ROOT}/Config.hxx
     ${HEADER_ROOT}/BaseDataSource.hxx
     ${HEADER_ROOT}/FontManager.hxx
+    ${HEADER_ROOT}/SystemCapabilities.hxx
     "$ENV{XTRA_INCLUDE}/rl/Json.hxx"
     "$ENV{XTRA_INCLUDE}/rl/Configuration.hxx"
 )
