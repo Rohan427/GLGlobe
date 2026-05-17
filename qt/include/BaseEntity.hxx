@@ -24,6 +24,7 @@
 #include <QDateTime>
 #include <QThread>
 #include <ace/Thread_Mutex.h>
+#include "ace/RW_Thread_Mutex.h"
 #include <ace/Guard_T.h>
 #include <ace/Barrier.h>
 #include <ace/Task.h>

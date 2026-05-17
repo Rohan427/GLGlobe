@@ -300,6 +300,16 @@ namespace SimCore
 
         m_program->release();
 
+        // Used for sensor filter
+        float glDetectionRange = m_entityManager->m_tracker->m_detectionRange - Globe::globeRadius;
+
+        // PULL THE METRIC POSITION DIRECTLY FROM YOUR CITY MARKER UNIFORM
+        QVector3D localFilterCenter = m_entityManager->m_tracker->m_filterAnchor;
+
+        // Calculate the true world position for the shader tracking uniform
+        QVector4D rotatedCenter4 = model * QVector4D (localFilterCenter, 1.0f);
+        QVector3D worldFilterCenter = rotatedCenter4.toVector3D();
+
         // For range rings
         if (m_entityManager->m_tracker->m_filterActive)
         {
@@ -317,11 +327,11 @@ namespace SimCore
             QVector3D extractedCameraPos = QVector3D (invView (0, 3), invView (1, 3), invView (2, 3));
 
             // PULL THE METRIC POSITION DIRECTLY FROM YOUR CITY MARKER UNIFORM
-            QVector3D localFilterCenter = m_entityManager->m_tracker->m_filterAnchor;
+////            QVector3D localFilterCenter = m_entityManager->m_tracker->m_filterAnchor;
 
             // Calculate the true world position for the shader tracking uniform
-            QVector4D rotatedCenter4 = model * QVector4D (localFilterCenter, 1.0f);
-            QVector3D worldFilterCenter = rotatedCenter4.toVector3D();
+////            QVector4D rotatedCenter4 = model * QVector4D (localFilterCenter, 1.0f);
+////            QVector3D worldFilterCenter = rotatedCenter4.toVector3D();
 
             // ALIGN GL MATH WITH THE SGP4 MODEL REFS
             double earthRadiusMeters = libsgp4::kXKMPER;
@@ -334,7 +344,7 @@ namespace SimCore
 
             // Convert your range spacing and max limits to matching fractional GL scales
             float glRingDelta      = m_entityManager->m_tracker->m_RngRingDelta;
-            float glDetectionRange = m_entityManager->m_tracker->m_detectionRange - Globe::globeRadius;
+            
 
             //ACE_DEBUG ((LM_DEBUG, "Ring delta: %f %f, Max Range: %f %f\n",
             //            m_entityManager->m_tracker->m_RngRingDelta, glRingDelta,
@@ -439,7 +449,7 @@ namespace SimCore
                 if (m_entityManager->m_tracker->m_filterActive)
                 {
                     m_program->setUniformValue ("filterCenter", m_entityManager->m_tracker->m_filterAnchor);
-                    m_program->setUniformValue ("filterRadius", m_entityManager->m_tracker->m_detectionRange);
+                    m_program->setUniformValue ("filterRadius", glDetectionRange);
                 }
 
                 glEnable (GL_PROGRAM_POINT_SIZE); // Enables gl_PointSize from shader

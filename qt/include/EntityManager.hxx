@@ -64,21 +64,79 @@ namespace SimCore
             // ACE worker thread
             virtual int svc() override
             {
+                // 1. CHOOSE A UNIQUE CORE ASSIGNMENT PATTERN (0 to 31)
+                // Map this specific worker thread context to a clean, isolated integer index
+                size_t localThreadId = m_threadIndexer.fetch_add (1);
+
+                // Fetch the underlying native POSIX/OS thread descriptor
+                ACE_thread_t nativeThreadHandle = ACE_OS::thr_self();
+
+                // =========================================================================
+                // 2. CROSS-PLATFORM CPU AFFINITY CONTROL (No Permissions Required)
+                // =========================================================================
+                long totalOnlineCores = ::sysconf (_SC_NPROCESSORS_ONLN);
+
+                if (totalOnlineCores > 1) 
+                {
+                    // LEAVE CORE 0 OPEN: Shift target indexing by 1 so Core 0 stays completely
+                    // free for your main Qt window and user interaction events (Thread 33)
+                    size_t assignedCore = (localThreadId % (totalOnlineCores - 1)) + 1;
+
+#if defined (__linux__)
+                    cpu_set_t cpuset;
+                    CPU_ZERO (&cpuset);
+                    CPU_SET (assignedCore, &cpuset);
+
+                    // Directly bind the thread to its target core under RHEL 10
+                    int affinityStatus = ::pthread_setaffinity_np (nativeThreadHandle, sizeof (cpu_set_t), &cpuset);
+
+                    if (affinityStatus != 0)
+                    {
+                        ACE_DEBUG ((LM_WARNING, "Worker %i: Core %i affinity pinning rejected.",
+                                    localThreadId, assignedCore));
+                    }
+
+#elif defined (__sun) || defined (sun)
+                    // Solaris explicit thread core binding mechanism fallback
+                    ::processor_bind (P_LWPID, P_MYID, static_cast<processorid_t>(assignedCore), NULL);
+
+#elif defined (_AIX)
+                    // IBM AIX explicit execution target core binding fallback
+                    ::bindprocessor (BINDPROCESS, ::getpid(), static_cast<cpu_t>(assignedCore));
+#endif
+                }
+
+                // =========================================================================
+                // 3. SAFE PRIORITY MANAGEMENT (No Permissions Required)
+                // =========================================================================
+                // Unprivileged users cannot activate real-time scheduling (SCHED_FIFO).
+                // Instead, we lower the "niceness" of the background worker tasks slightly.
+                // This allows the OS to prioritize the main thread's 4K rendering loop.
+#if defined (__linux__)
+                // Nice values run from -20 (highest) to +19 (lowest).
+                // Increasing niceness to +5 safely signals the kernel that this
+                // background SGP4 math pool should yield resources to the rendering pipeline.
+                int niceStatus = ::setpriority (PRIO_PROCESS, 0, 5);
+
+                if (niceStatus != 0)
+                {
+                    ACE_DEBUG ((LM_DEBUG, "Worker %i: Nice value adjustment skipped.", localThreadId));
+                }
+#else
+                // Cooperative user-space priority shifting for traditional UNIX environments
+                int fallbackMinPrio = ACE_OS::thr_getminprio (THR_SCHED_DEFAULT);
+                ACE_OS::thr_setprio (fallbackMinPrio);
+#endif
+
+                // =========================================================================
+                // 4. THE SYNC HANDSHAKE BARRIER
+                // =========================================================================
+                // Block until all 32 background workers have finalized their core configurations.
+                // Once the main thread hits its matching wait() call inside startSimulation(),
+                // the barrier will break and execution will begin simultaneously.
                 m_barrier->wait();
-                int localThreadId = m_threadIndexer.fetch_add (1) % ::Config::getInstance().MAX_THREADS;
 
-/*                  AFFINITY CODE IF I WANT TO USE IT
-                // 1. Determine which logical core this specific thread should live on
-                int threadIdx = m_threadIndexer.fetch_add(1) % 32;
-
-                cpu_set_t cpuset;
-                CPU_ZERO(&cpuset);
-                CPU_SET(threadIdx, &cpuset);
-
-                // 2. Pin this ACE thread to a specific core
-                pthread_t current_thread = pthread_self();
-                pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
-*/
+//                int localThreadId = m_threadIndexer.fetch_add (1) % ::Config::getInstance().MAX_THREADS;
 
                 while (!m_done && !this->msg_queue()->deactivated())
                 {

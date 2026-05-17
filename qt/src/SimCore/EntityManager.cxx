@@ -32,7 +32,7 @@ namespace SimCore
 
             // USE THE FILE READER TASK
             // This task opens the file path (info.mid(11)) and reads the lines
-            auto* data = new FileTaskData { info.mid(11), group };
+            auto* data = new FileTaskData { info.mid (11), group };
             ACE_Thread_Manager::instance()->spawn ((ACE_THR_FUNC)EntityManager::fileReaderTask, 
                                                    data, 
                                                    THR_DETACHED | THR_NEW_LWP
