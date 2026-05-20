@@ -23,6 +23,13 @@ enum class SchedulingTier
     StandardFallback     // Default OS management (Single-core fallback or blocked API)
 };
 
+enum class WorkloadType
+{
+    SGP4_PROPAGATOR,     // Dense, uniform FPU arithmetic
+    PATH_PREDICTOR,      // Intercept path calculations (Takes mathematical precedence)
+    IO_PARSER            // Low-math, high-string background processing
+};
+
 struct HardwareCore
 {
     int logicalId;       // OS mapping index (e.g., CPU 0 to CPU 31)

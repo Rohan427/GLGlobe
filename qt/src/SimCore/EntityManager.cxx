@@ -334,99 +334,111 @@ namespace SimCore
 
     int EntityManager::svc() 
     {
-        // 1. Hold threads until startup mapping parameters are initialized
-        m_barrier->wait();
+        // 1. Initial startup sync boundary handshake
+    m_barrier->wait();
 
-        int localThreadId = m_threadIndexer.fetch_add (1) % m_numThreads;
-        SIM_LOG (LM_DEBUG, QString ("Starting service thread for thread %1").arg (localThreadId));
+    // Secure a unique, bound-safe ID matching your active worker pool size
+    int localThreadId = m_threadIndexer.fetch_add(1) % m_numThreads;
+    ACE_thread_t nativeThreadHandle = ACE_OS::thr_self();
 
-        ACE_thread_t nativeThreadHandle = ACE_OS::thr_self();
-        size_t availablePoolSize = static_cast<int> (m_numThreads);
+    size_t availableCores = m_hardwareCorePool.size();
 
-        // =========================================================================
-        // DYNAMIC SCHEDULER PINNING PIPELINE (BOUND-SAFE REPAIR)
-        // =========================================================================
-        if (m_selectedTier != SchedulingTier::StandardFallback && !m_hardwareCorePool.empty())
+    // =========================================================================
+    // STEP 1: HETEROGENEOUS TOPOLOGY WORKLOAD PARTITIONING
+    // =========================================================================
+    if (m_selectedTier != SchedulingTier::StandardFallback && availableCores > 0)
+    {
+        try
         {
-            try
+            int targetCpuId = 0;
+            WorkloadType myWorkload = WorkloadType::SGP4_PROPAGATOR;
+
+            // Dynamically assign thread types based on your application lifecycle allocation
+            // Example: Split pool so higher index blocks handle trajectory predictions
+            if (localThreadId >= (m_numThreads / 2))
             {
- //               availablePoolSize = m_hardwareCorePool.size();
+                myWorkload = WorkloadType::PATH_PREDICTOR;
+            }
 
-                SIM_LOG (LM_DEBUG, QString ("Core selection for thread %1").arg (localThreadId));
-                int targetHardwareLogicalId = 0;
-                bool isHT = false;
+            std::vector<int> primaryPhysicalCores;
+            std::vector<int> hyperthreadedSiblingCores;
 
-                if (availablePoolSize > 1)
+            // Divide the unfiltered pool into independent hardware computing pools
+            for (size_t i = 0; i < availableCores; ++i)
+            {
+                if (m_hardwareCorePool.at (i).isHTSibling)
                 {
-                    // Stride across your core matrix safely, leaving Core 0 open for graphics
-                    size_t poolOffset = (static_cast<size_t> (localThreadId) % (availablePoolSize - 1)) + 1;
-                    
-                    // PRODUCTION PROTECTION: Force bounds checking via .at() to prevent core dumps
-                    const HardwareCore& assignedTargetCore = m_hardwareCorePool.at (poolOffset);
-                    targetHardwareLogicalId = assignedTargetCore.logicalId;
-                    isHT = assignedTargetCore.isHTSibling;
-
-                    SIM_LOG (LM_DEBUG, QString ("Core selected for thread %1 is %2")
-                             .arg (localThreadId)
-                             .arg (targetHardwareLogicalId)
-                            );
+                    hyperthreadedSiblingCores.push_back (m_hardwareCorePool.at (i).logicalId);
                 }
                 else
                 {
-                    const HardwareCore& assignedTargetCore = m_hardwareCorePool.at (0);
-                    targetHardwareLogicalId = assignedTargetCore.logicalId;
-                    isHT = assignedTargetCore.isHTSibling;
-                    SIM_LOG (LM_DEBUG, QString ("Only one core available. Core selected for thread %1 is %2")
-                             .arg (localThreadId)
-                             .arg (targetHardwareLogicalId)
-                            );
+                    primaryPhysicalCores.push_back (m_hardwareCorePool.at (i).logicalId);
                 }
+            }
 
-                SIM_LOG (LM_DEBUG, QString ("Pinning CPU thread %1").arg (targetHardwareLogicalId));
-                cpu_set_t cpuset;
-                CPU_ZERO (&cpuset);
-                CPU_SET (targetHardwareLogicalId, &cpuset);
+            // CORE ROUTING ENGINE
+            if (myWorkload == WorkloadType::SGP4_PROPAGATOR && !primaryPhysicalCores.empty())
+            {
+                // SGP4 Threads: Pinned to physical cores, skipping Core 0 to protect graphics
+                size_t poolOffset = (static_cast<size_t> (localThreadId) % (primaryPhysicalCores.size() - 1)) + 1;
+                targetCpuId = primaryPhysicalCores.at (poolOffset);
+            } 
+            else if (myWorkload == WorkloadType::PATH_PREDICTOR && !hyperthreadedSiblingCores.empty())
+            {
+                // Path Prediction: Maps to HT sibling units to share FPU execution blocks
+                size_t poolOffset = static_cast<size_t> (localThreadId) % hyperthreadedSiblingCores.size();
+                targetCpuId = hyperthreadedSiblingCores.at (poolOffset);
+            } 
+            else {
+                // Fallback to basic linear stride if HT is completely disabled in system BIOS
+                targetCpuId = m_hardwareCorePool.at(static_cast<size_t>(localThreadId) % availableCores).logicalId;
+            }
+
+            cpu_set_t cpuset;
+            CPU_ZERO (&cpuset);
+            CPU_SET (targetCpuId, &cpuset);
+            ::pthread_setaffinity_np (nativeThreadHandle, sizeof (cpu_set_t), &cpuset);
+
+            // =========================================================================
+            // STEP 2: REAL-TIME ESCALATION & SCHEDULER TUNING
+            // =========================================================================
+            if (m_selectedTier == SchedulingTier::RealTimeAndAffinity)
+            {
+                struct sched_param param;
                 
-                int pinStatus = ::pthread_setaffinity_np (nativeThreadHandle, sizeof (cpu_set_t), &cpuset);
-                
-                if (pinStatus == 0 && isHT)
+                // MISSILE COMMAND PRIORITY HIERARCHY:
+                // Intercept path calculations take precedence over background satellite rendering
+                if (myWorkload == WorkloadType::PATH_PREDICTOR)
                 {
-                    SIM_LOG (LM_DEBUG, QString("Thread %1: Pinned to Hyperthreaded core sibling %2.")
-                             .arg (localThreadId)
-                             .arg (targetHardwareLogicalId)
-                            );
+                    param.sched_priority = 35; // Higher real-time tier
                 }
                 else
                 {
-                    SIM_LOG (LM_DEBUG, QString("Thread %1: Pinned to non-HT core %2.")
-                             .arg (localThreadId)
-                             .arg (targetHardwareLogicalId)
-                            );
+                    param.sched_priority = 20; // Standard background real-time tier
                 }
 
-                // Apply priority metrics based on discovered system configurations
-                if (m_selectedTier == SchedulingTier::RealTimeAndAffinity)
+                int rtStatus = ::pthread_setschedparam (nativeThreadHandle, SCHED_FIFO, &param);
+                if (rtStatus != 0)
                 {
-                    SIM_LOG (LM_DEBUG, QString ("Setting affinity for thread %1").arg (localThreadId));
-                    struct sched_param param;
-                    param.sched_priority = 20;
-                    ::pthread_setschedparam (nativeThreadHandle, SCHED_FIFO, &param);
-                }
-                else
-                {
+                    // System-level block caught: drop back down to safe time-sharing niceness
 #if defined (__linux__)
-                    SIM_LOG (LM_DEBUG, QString ("Setting standard affinity for thread %1").arg (localThreadId));
-                    ::setpriority (PRIO_PROCESS, 0, 5); // Fall back to safe background niceness
+                        ::setpriority (PRIO_PROCESS, 0, 5);
 #endif
                 }
             } 
-            catch (const std::out_of_range& e)
-            {
-                // Catch array indexing errors cleanly without dumping core
-                SIM_LOG (LM_ERROR, QString ("Critical Exception: Worker %1 out of hardware topology bounds. Pinning skipped.")
-                        .arg (localThreadId));
+            else {
+                // Tier 2 Fallback: Apply relative niceness under SCHED_OTHER
+#if defined (__linux__)
+                    int targetNice = (myWorkload == WorkloadType::PATH_PREDICTOR) ? 2 : 6;
+                    ::setpriority (PRIO_PROCESS, 0, targetNice);
+#endif
             }
+        } 
+        catch (const std::out_of_range& e)
+        {
+            SIM_LOG (LM_ERROR, QString ("Core allocation exception on Thread %1.").arg (localThreadId));
         }
+    }
 
         // =========================================================================
         // 2. DATA PROCESSING PIPELINE
@@ -447,7 +459,7 @@ namespace SimCore
                 {
                     SIM_LOG (LM_DEBUG, QString ("Loop updatePhysics %1").arg (localThreadId));
 
-                    for (size_t i = (size_t)localThreadId; i < m_entities.size(); i += availablePoolSize)
+                    for (size_t i = (size_t)localThreadId; i < m_entities.size(); i += availableCores)
                     {
                         BaseEntity* entity = m_entities[i];
 
