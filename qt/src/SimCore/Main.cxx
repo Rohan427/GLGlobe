@@ -1,12 +1,8 @@
-//#include "LegacyGLApp.hxx"
+#include "LegacyGLApp.hxx"
 
-#include "Config.hxx"
 #include <QOpenGLWidget>
-#include <QApplication>
 #include <QOpenGLFunctions_4_3_Core>
-//#include "MyGLWidget.hxx"
 #include "MainWindow.hxx"
-#include <ace/Log_Msg.h>
 
 #define DEBUG false
 

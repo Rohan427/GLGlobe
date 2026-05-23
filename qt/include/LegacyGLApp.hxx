@@ -8,6 +8,7 @@
 #endif
 
 #include "Globe.hxx"
+#include "Config.hxx"
 #include "Utility.hxx"
 #include <QApplication>
 #include <QMouseEvent> // Fixes the "incomplete type" error for mouse

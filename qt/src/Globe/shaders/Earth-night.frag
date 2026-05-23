@@ -1,12 +1,13 @@
-#version 430 core
+#version 460 core
 
-in vec2 vTex;
-in float vDiffuse;
-out vec4 fragColor;
+layout (location = 0) in vec2 vTex;
+layout (location = 1) in float vDiffuse;
 
-uniform sampler2D daySampler;   // The Natural Earth III day map
-uniform sampler2D nightSampler; // The Natural Earth III night map
-uniform float ambientIntensity; // Ambient uniform
+layout (location = 0) out vec4 fragColor;
+
+layout (location = 0) uniform sampler2D daySampler;   // The Natural Earth III day map
+layout (location = 1) uniform sampler2D nightSampler; // The Natural Earth III night map
+layout (location = 2) uniform float ambientIntensity; // Ambient uniform
 
 void main()
 {

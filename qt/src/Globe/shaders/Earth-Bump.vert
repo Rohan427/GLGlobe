@@ -1,15 +1,15 @@
-#version 430 core
+#version 460 core
 
 layout (location = 0) in vec3 pos;
 layout (location = 1) in vec2 tex;
 layout (location = 2) in vec3 normal;
 
-out vec2 vTex;
-out vec3 vNormal; // Added for bump mapping
-out vec3 vPos;    // Added for bump mapping
+layout (location = 0) out vec2 vTex;
+layout (location = 1) out vec3 vNormal; // Added for bump mapping
+layout (location = 2) out vec3 vPos;    // Added for bump mapping
 
-uniform mat4 mvp;
-uniform mat4 modelMatrix;
+layout (location = 0) uniform mat4 mvp;
+layout (location = 4) uniform mat4 modelMatrix;
 
 void main()
 {

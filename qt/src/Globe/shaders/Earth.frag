@@ -1,9 +1,11 @@
-#version 430 core
+#version 460 core
 
-in vec2 vTex;
-in float vDiffuse;
-out vec4 fragColor;
-uniform sampler2D sampler;
+layout (location = 0) in vec2 vTex;
+layout (location = 1) in float vDiffuse;
+
+layout (location = 0) out vec4 fragColor;
+
+layout (location = 0) uniform sampler2D sampler;
 
 void main()
 {

@@ -7,13 +7,13 @@
 #define ACE_MT_SAFE 1
 #endif
 
+#include "Utility.hxx"
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
 #include <QTextStream> // Necessary for the line-by-line reading in fileReaderTask
 #include <QDateTime>    // For comparing current time to file age
 #include <QObject>
-#include "Globe.hxx"
 #include <iostream>
 #include <cstdlib>
 #include <QtMath>
@@ -28,7 +28,6 @@
 #include <ace/Guard_T.h>
 #include <ace/Log_Msg.h>
 #include <atomic>
-#include "Utility.hxx"
 
 //#include "MainWindow.hxx"
 

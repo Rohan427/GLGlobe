@@ -1,23 +1,23 @@
-#version 430 core
+#version 460 core
 
-in vec2 vTex;
-in vec3 vNormal;
-in vec3 vPos;
+layout (location = 0) in vec2 vTex;
+layout (location = 1) in vec3 vNormal;
+layout (location = 2) in vec3 vPos;
 
 // For sensor range visuals
-uniform vec3 filterCenter;
-uniform float filterRadius;
-uniform bool filterEnabled;
-uniform vec3 rangeRingColor;
-uniform float rangeRingDelta; // Spacing in GL units
+layout (location = 8) uniform vec3 filterCenter;
+layout (location = 9) uniform float filterRadius;
+layout (location = 10) uniform bool filterEnabled;
+layout (location = 11) uniform vec3 rangeRingColor;
+layout (location = 12) uniform float rangeRingDelta; // Spacing in GL units
 
-out vec4 fragColor;
+layout (location = 0) out vec4 fragColor;
 
-uniform sampler2D daySampler;
-uniform sampler2D nightSampler;
-uniform sampler2D bumpSampler;
-uniform vec3 sunDirection;
-uniform float ambientIntensity;
+layout (location = 13) uniform sampler2D daySampler;
+layout (location = 14) uniform sampler2D nightSampler;
+layout (location = 15) uniform sampler2D bumpSampler;
+layout (location = 16) uniform vec3 sunDirection;
+layout (location = 17) uniform float ambientIntensity;
 
 void main()
 {

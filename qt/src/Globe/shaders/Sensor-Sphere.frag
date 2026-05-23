@@ -1,18 +1,18 @@
-#version 430 core
+#version 460 core
 
-in vec3 vWorldPos;
+layout (location = 0) in vec3 vWorldPos;
 
-uniform vec3 cameraWorldPos; 
-uniform vec3 filterCenter;      // Fully transformed world coordinate matrix
-uniform vec3 rangeRingColor;
+layout (location = 13) uniform vec3 cameraWorldPos; 
+layout (location = 14) uniform vec3 filterCenter;      // Fully transformed world coordinate matrix
+layout (location = 15) uniform vec3 rangeRingColor;
 
-out vec4 fragColor;
+layout (location = 0) out vec4 fragColor;
 
 void main()
 {
     // 1. DYNAMIC TANGENT HORIZON PLANE CLIPPING
     vec3 toFragment = vWorldPos - filterCenter;
-    vec3 planeNormal = normalize(filterCenter); // Points straight up out from Earth center (0,0,0)
+    vec3 planeNormal = normalize (filterCenter); // Points straight up out from Earth center (0,0,0)
 
     // Evaluate the perpendicular height of the current fragment above the tangent plane
     float heightAbovePlane = dot (toFragment, planeNormal);

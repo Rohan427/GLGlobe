@@ -3,9 +3,8 @@
 #ifndef TRACKING_HXX
 #define TRACKING_HXX
 
-#include "Config.hxx"
 #include "Utility.hxx"
-#include "Globe.hxx"
+#include "Config.hxx"
 
 namespace Objects
 {

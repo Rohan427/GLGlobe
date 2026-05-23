@@ -3,13 +3,14 @@
 #ifndef GLOBE_HXX
 #define GLOBE_HXX
 
+#include <glad/gl.h>
+#include <utility>
+#include <map>
+#include <string>
 #include "Config.hxx"
 #include <QElapsedTimer>
 #include <QOpenGLShaderProgram>
 #include <QPainter>
-#include <utility>
-#include <map>
-#include <string>
 #include <SGP4.h>
 
 struct ParsingTaskData
@@ -48,10 +49,14 @@ namespace Globe
             inline QVector2D m_offset;   // for dragging
             inline float m_ambientLevel;
 
-             // Radius 1.5, 64 sectors/stacks
+             // Radius ::Config::DEFAULT_RADIUS, ::Config::DEFAULT_SECTORS sectors, ::Config::DEFAULT_STACKS stacks
             inline float globeRadius;
             inline int globeSectors;
             inline int globeStacks;
+
+            // Set to SGP4
+            inline double earthRadiusKm;
+            inline float glScaleFactor;
 
             // Height of labels and points above the globe. Put labels above globe, but not too far or they will "slide" due
             // to perspective and zoom changes

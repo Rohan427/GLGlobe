@@ -12,7 +12,6 @@
 #include <vector>
 #include <algorithm>
 #include "SystemCapabilities.hxx"
-#include "MainWindow.hxx"
 
 namespace SimCore
 {

@@ -3,19 +3,20 @@
 #ifndef MYGLWIDGET_HXX
 #define MYGLWIDGET_HXX
 
+#include "Utility.hxx"
 #include <iostream>
+#include <fstream>
 #include <cstdlib>
 #include <array>
 #include <string>
 #include <map>
+#include <vector>
 #include <QMouseEvent> // Fixes the "incomplete type" error for mouse
 #include <QKeyEvent>   // Fixes it for keyboard
 #include <QDebug>      // Required for qDebug()
 #include <QOpenGLWidget>
 #include <QOpenGLVertexArrayObject>
 #include <QOpenGLFunctions_4_3_Core>
-#include <vector>
-#include <QOpenGLShaderProgram>
 #include <QOpenGLBuffer>
 #include <QElapsedTimer>
 #include <QImageReader>
@@ -27,19 +28,14 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QTimer>
-#include "MainWindow.hxx"
 
-#include "SGP4.h"
 #include "Tle.h"
 #include "CoordGeodetic.h"
 #include <memory>
-#include "Utility.hxx"
-#include "Globe.hxx"
 #include "EntityManager.hxx"
 #include "Satellite.hxx"
 #include "CelesTrakSource.hxx"
 #include "FontManager.hxx"
-#include "Tracking.hxx"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -161,44 +157,27 @@ namespace SimCore
             void keyPressEvent (QKeyEvent *event) override;
             void resizeGL (int w, int h) override;
 
-            // Helper to load and link shaders
+            // Helper to load and link single shaders
             bool initShader (QOpenGLShaderProgram* program, const QString& vPath, const QString& fPath);
             bool initComputeShader (QOpenGLShaderProgram* program, const QString& cPath);
-            bool setActiveShader (const QString& name);
 
-            // Helper to add a new shader to the library
+            // Helpers to add a new shader to the library
+
+            // Load shaders containing GLSL source
+            bool registerShader_legacy (const QString& name, const QString& vFile, const QString& fFile);
+
+            // Load shaders containing SPIR-V bytecode
             bool registerShader (const QString& name, const QString& vFile, const QString& fFile);
 
-            // Calculate the real-world sun direction
-            QVector3D calculateSunDirection();
-
-            // To test basic pipeline with vertex + fragment shaders
-            GLuint createSimpleTexture (int w, int h);
-
-            GLuint loadTexture (std::array<int, 2>& mapSize, const QString& filePath, const int type);
-            bool loadTextureFiles (std::array<int, 2>& mapSize);
+            // Selects a set of shader programs to activate from the cache
+            bool setActiveShader (const QString& name);
 
             void initializeGlobePosition();
 
-            // Square Geometry (X, Y, U, V)
-            float* createPlane();
-
-            // Plane X, Y, U, V
-            float* createLargePlane();
-
-            // Cube with normals X, Y, Z, U, V, NX, NY, NZ (8 floats per vertex)
-            float* createNormalCube();
-
-            // X, Y, Z, U, V
-            float* createCube();
+            QVector3D calculateSunDirection();
 
             // Generate a sphere
             void generateSphere (float radius, int sectors, int stacks);
-            
-            // To test compute shader inpipeline
-            GLuint createDynamicTexture (int w, int h);
-
-            void loadTextures (std::array<int, 2>& mapSize);
 
             // Inside the widget for executing compute shader
             void runCompute();

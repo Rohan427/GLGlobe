@@ -1,8 +1,8 @@
-#version 430 core
+#version 460 core
 
-out vec4 fragColor;
+layout (location = 0) out vec4 fragColor;
 
-uniform vec3 satColor; // Pass this from the sidebar later!
+layout (location = 7) uniform vec3 satColor; // Pass this from the sidebar later!
 
 void main()
 {

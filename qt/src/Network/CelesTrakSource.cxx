@@ -1,4 +1,5 @@
 #include "CelesTrakSource.hxx"
+#include "Utility.hxx"
 #include "MainWindow.hxx"
 
 namespace Network

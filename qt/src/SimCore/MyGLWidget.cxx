@@ -9,6 +9,41 @@ namespace SimCore
     {
         SIM_LOG (LM_INFO, "Initializing GL pipeline");
 
+        // 1. EXTRACT THE ACTIVE RENDERING CONTEXT POINTER
+        QOpenGLContext* currentCtx = QOpenGLContext::currentContext();
+
+        if (!currentCtx)
+        {
+            SIM_LOG (LM_CRITICAL, "CRITICAL: No active QOpenGLContext found during initialization!");
+            return;
+        }
+
+        // 2. INITIALIZE GLAD 2 VIA TYPE-SAFE ADAPTER LAMBDA
+        // The lambda provides a standalone C-style signature callback function hook that 
+        // captures the current context pointer and executes the member function safely.
+        auto gladProcLoader = [](const char* name) -> void*
+        {
+            QOpenGLContext* ctx = QOpenGLContext::currentContext();
+
+            if (ctx)
+            {
+                // Convert C-string parameter into Qt's format and query the graphics driver address
+                return reinterpret_cast<void*> (ctx->getProcAddress (name));
+            }
+
+            return nullptr;
+        };
+
+        // 3. LOAD OPENGL 4.6 CORE HOOKS USING THE CORRECT GLAD 2 NAMING SCHEMA
+        // Pass the lambda wrapper function pointer straight into the glad loader pipeline
+        if (!gladLoadGL (reinterpret_cast<GLADloadfunc> (+gladProcLoader)))
+        {
+            SIM_LOG (LM_CRITICAL, "CRITICAL: GLAD 2 failed to resolve OpenGL 4.6 Core function pointers!");
+            return;
+        }
+
+        SIM_LOG (LM_INFO, "GLAD 2 initialized successfully. OpenGL 4.6 Core Driver hooks active.");
+
         // Initialize important variables from defaults
         Globe::g_perspective = ::Config::getInstance().DEFAULT_PERSPECTIVE;
         Globe::m_liveOffset = ::Config::getInstance().DEFAULT_LIVEOFFSET;
@@ -22,6 +57,9 @@ namespace SimCore
         Globe::globeRadius = ::Config::getInstance().DEFAULT_RADIUS;
         Globe::globeSectors = ::Config::getInstance().DEFAULT_SECTORS;
         Globe::globeStacks = ::Config::getInstance().DEFAULT_STACKS;
+
+        Globe::earthRadiusKm = libsgp4::kXKMPER;
+        Globe::glScaleFactor = Globe::globeRadius / static_cast<float> (Globe::earthRadiusKm);
 
         // Height of labels and points above the globe. Put labels above globe, but not too far or they will "slide" due
         // to perspective and zoom changes
@@ -102,16 +140,30 @@ namespace SimCore
     //    registerShader ("Standard", "shaders/Earth.vert", "shaders/Earth.frag");
 
         // Globe shaders
-        registerShader ("NightLights", "shaders/Earth.vert", "shaders/Earth-night.frag");
-        registerShader ("BumpLights", "shaders/Earth-Bump.vert", "shaders/Earth-Bump.frag");
-        registerShader ("CityPoints", "shaders/Simple-Point.vert", "shaders/Simple-Point.frag");
-        registerShader ("RangeRings", "shaders/Sensor-Sphere.vert", "shaders/Sensor-Sphere.frag");
+        //registerShader_legacy ("NightLights", "shaders/Earth.vert", "shaders/Earth-night.frag");
+        //registerShader_legacy ("BumpLights", "shaders/Earth-Bump.vert", "shaders/Earth-Bump.frag");
+        //registerShader_legacy ("CityPoints", "shaders/Simple-Point.vert", "shaders/Simple-Point.frag");
+        //registerShader_legacy ("RangeRings", "shaders/Sensor-Sphere.vert", "shaders/Sensor-Sphere.frag");
+
+        //// Object shaders
+        //registerShader_legacy ("Satellites", "shaders/Satellite.vert", "shaders/Satellite.frag");
+
+        //// Font shaders
+        //registerShader_legacy ("CityFonts", "shaders/CityLabel.vert", "shaders/CityLabel.frag");
+
+
+
+        // Globe shaders
+        registerShader ("NightLights", "shaders/Earth.vert.spv", "shaders/Earth-night.frag.spv");
+        registerShader ("BumpLights", "shaders/Earth-Bump.vert.spv", "shaders/Earth-Bump.frag.spv");
+        registerShader ("CityPoints", "shaders/Simple-Point.vert.spv", "shaders/Simple-Point.frag.spv");
+        registerShader ("RangeRings", "shaders/Sensor-Sphere.vert.spv", "shaders/Sensor-Sphere.frag.spv");
 
         // Object shaders
-        registerShader ("Satellites", "shaders/Satellite.vert", "shaders/Satellite.frag");
+        registerShader ("Satellites", "shaders/Satellite.vert.spv", "shaders/Satellite.frag.spv");
 
         // Font shaders
-        registerShader ("CityFonts", "shaders/CityLabel.vert", "shaders/CityLabel.frag");
+        registerShader ("CityFonts", "shaders/CityLabel.vert.spv", "shaders/CityLabel.frag.spv");
         
 
         // Set the default
@@ -131,9 +183,8 @@ namespace SimCore
         m_vbo.allocate (m_sphereVertices.data(), m_sphereVertices.size() * sizeof (float));
 
         SIM_LOG (LM_INFO, "Load texture");
-        //textureID = loadTexture (mapSizes.huge, "textures/1_earth_16k.jpg");
         
-        if (!loadTextureFiles (Globe::mapSizes.huge))
+        if (!Utility::loadTextureFiles (Globe::mapSizes.huge))
         {
             SIM_LOG (LM_CRITICAL, "FATAL ERROR: Failed to initialize textures");
             QCoreApplication::exit (1); // Exit app
@@ -265,25 +316,25 @@ namespace SimCore
        
         // 4. Update Uniforms
         m_program->bind();
-        m_program->setUniformValue ("ambientIntensity", Globe::m_ambientLevel);
-        m_program->setUniformValue ("modelMatrix", model);
-        m_program->setUniformValue ("sunDirection", QVector3D (0, 0, 1));
-        m_program->setUniformValue ("mvp", mvp);
+        m_program->setUniformValue (17, Globe::m_ambientLevel);
+        m_program->setUniformValue (4, model);
+        m_program->setUniformValue (16, QVector3D (0, 0, 1));
+        m_program->setUniformValue (0, mvp);
 
         // Bind Day Texture to Unit 0
         glActiveTexture (GL_TEXTURE0);
         glBindTexture (GL_TEXTURE_2D, dayTextureID);
-        m_program->setUniformValue ("daySampler", 0);
+        m_program->setUniformValue (13, 0);
 
         // Bind Night Texture to Unit 1
         glActiveTexture (GL_TEXTURE1);
         glBindTexture (GL_TEXTURE_2D, nightTextureID);
-        m_program->setUniformValue ("nightSampler", 1);
+        m_program->setUniformValue (14, 1);
 
         // Bind the Bump/Height Map
         glActiveTexture (GL_TEXTURE2);
         glBindTexture (GL_TEXTURE_2D, bumpTextureID);
-        m_program->setUniformValue ("bumpSampler", 2);
+        m_program->setUniformValue (15, 2);
 
         // 3. Drawing
         m_vao.bind();
@@ -337,10 +388,6 @@ namespace SimCore
 ////            QVector4D rotatedCenter4 = model * QVector4D (localFilterCenter, 1.0f);
 ////            QVector3D worldFilterCenter = rotatedCenter4.toVector3D();
 
-            // ALIGN GL MATH WITH THE SGP4 MODEL REFS
-            double earthRadiusMeters = libsgp4::kXKMPER;
-            float glScaleFactor      = Globe::globeRadius / static_cast<float> (earthRadiusMeters);
-
             QVector3D ringColorVec = QVector3D(::Config::getInstance().RANGE_RING_COLOR.x(),
                                                ::Config::getInstance().RANGE_RING_COLOR.y(),
                                                ::Config::getInstance().RANGE_RING_COLOR.z()
@@ -356,12 +403,12 @@ namespace SimCore
             //          );
 
             m_program->bind();
-            m_program->setUniformValue ("view", view);
-            m_program->setUniformValue ("projection", projection);
-            m_program->setUniformValue ("cameraWorldPos", extractedCameraPos); // Vector3D tracking your camera pos
-            m_program->setUniformValue ("filterCenter", worldFilterCenter);
-            m_program->setUniformValue ("rangeRingColor", ringColorVec);
-            m_program->setUniformValue ("globeRadius", Globe::globeRadius);
+            m_program->setUniformValue (4, view); // view
+            m_program->setUniformValue (8, projection); //projection
+            m_program->setUniformValue (13, extractedCameraPos); // Vector3D tracking your camera pos cameraWorldPos
+            m_program->setUniformValue (14, worldFilterCenter); // filterCenter
+            m_program->setUniformValue (15, ringColorVec); // rangeRingColor
+            m_program->setUniformValue (12, Globe::globeRadius); // globeRadius
 
             m_vao.bind();
             m_vbo.bind();
@@ -386,8 +433,8 @@ namespace SimCore
                 localRingModel.translate (localFilterCenter); 
                 localRingModel.scale (currentRadius); 
 
-                m_program->setUniformValue ("model", localRingModel);
-                m_program->setUniformValue ("mvp", projection * view * localRingModel);
+                m_program->setUniformValue (0, localRingModel); // model
+//                m_program->setUniformValue ("mvp", projection * view * localRingModel); // mvp
 
                 glDrawArrays (GL_TRIANGLES, 0, vertexCount);
 
@@ -401,8 +448,8 @@ namespace SimCore
             localRingModel.translate (localFilterCenter); 
             localRingModel.scale (glDetectionRange); 
 
-            m_program->setUniformValue ("model", localRingModel);
-            m_program->setUniformValue ("mvp", projection * view * localRingModel);
+            m_program->setUniformValue (0, localRingModel); // model
+//            m_program->setUniformValue ("mvp", projection * view * localRingModel); // mvp
 
             glDrawArrays (GL_TRIANGLES, 0, vertexCount);
 
@@ -446,14 +493,14 @@ namespace SimCore
             if (!m_satPositions.empty())
             {
                 m_program->bind();
-                m_program->setUniformValue ("mvp", mvp); //projection * view * model);
-                m_program->setUniformValue ("satColor", 1.0f, 0.0f, 1.0f); // Magenta
-                m_program->setUniformValue ("filterEnabled", m_entityManager->m_tracker->m_filterActive);
+                m_program->setUniformValue (0, mvp); // mvp
+                m_program->setUniformValue (7, 1.0f, 0.0f, 1.0f); // Magenta, satColor
+                m_program->setUniformValue (6, m_entityManager->m_tracker->m_filterActive); // filterEnabled
 
                 if (m_entityManager->m_tracker->m_filterActive)
                 {
-                    m_program->setUniformValue ("filterCenter", m_entityManager->m_tracker->m_filterAnchor);
-                    m_program->setUniformValue ("filterRadius", glDetectionRange);
+                    m_program->setUniformValue (4, m_entityManager->m_tracker->m_filterAnchor); // filterCenter
+                    m_program->setUniformValue (5, glDetectionRange); // filterRadius
                 }
 
                 glEnable (GL_PROGRAM_POINT_SIZE); // Enables gl_PointSize from shader
@@ -510,7 +557,7 @@ namespace SimCore
             if (setActiveShader ("CityPoints"))
             {
                 m_program->bind();
-                m_program->setUniformValue ("mvp", mvp);
+                m_program->setUniformValue (0, mvp); // mvp
                 
                 glEnable (GL_PROGRAM_POINT_SIZE); // Enables gl_PointSize from shader
                 glEnable (GL_BLEND);
@@ -530,9 +577,9 @@ namespace SimCore
             if (setActiveShader ("CityFonts"))
             {
                 m_program->bind();
-                m_program->setUniformValue ("viewportSize", QVector2D (width(), height()));
-                m_program->setUniformValue ("scale", 0.45f); 
-                m_program->setUniformValue ("mvp", mvp);
+                m_program->setUniformValue (4, QVector2D (width(), height())); // viewportSize
+                m_program->setUniformValue (5, 0.45f); // scale
+                m_program->setUniformValue (0, mvp); //mvp
 
                 // Bind Day Texture to Unit 0
                 glActiveTexture (GL_TEXTURE0);
@@ -793,130 +840,6 @@ namespace SimCore
         update();
     }
 
-    GLuint MyGLWidget::createSimpleTexture (int w, int h)
-    {
-        GLuint id;
-        glGenTextures (1, &id);
-        glBindTexture (GL_TEXTURE_2D, id);
-
-        std::vector<unsigned char> px (w * h * 4);
-
-        for (int i=0; i<w*h; ++i)
-        {
-            int x = i % w, y = i / w;
-            unsigned char c = ((x/32 + y/32) % 2 == 0) ? 255 : 100;
-            px[i*4]=c; px[i*4+1]=0; px[i*4+2]=255-c; px[i*4+3]=255;
-        }
-
-        glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        return id;
-    }
-
-    GLuint MyGLWidget::createDynamicTexture (int w, int h)
-    {
-        GLuint id;
-        glGenTextures (1, &id);
-        glBindTexture (GL_TEXTURE_2D, id);
-
-        // REQUIRED for compute shaders: Allocate immutable storage
-        // We use GL_RGBA8 to match the image2D layout in the shader
-        glTexStorage2D (GL_TEXTURE_2D, 1, GL_RGBA8, w, h);
-
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        return id;
-    }
-
-    float* MyGLWidget::createPlane()
-    {
-        static float data[] = {
-                        -0.5, -0.5,  0, 0, 
-                        0.5,  -0.5,  1, 0, 
-                        0.5,   0.5,  1, 1,
-                        -0.5,  0.5,  0, 1
-                       };
-
-        return data;
-    }
-
-    float* MyGLWidget::createLargePlane()
-    {
-        static float data[] =
-        { 
-            -1.0, -1.0, 0.0,  0.0, 0.0,
-             1.0, -1.0, 0.0,  1.0, 0.0,
-             1.0,  1.0, 0.0,  1.0, 1.0,
-            -1.0,  1.0, 0.0,  0.0, 1.0 
-        };
-
-        return data;
-    }
-
-    float* MyGLWidget::createNormalCube()
-    {
-        static float cubeNormalData[] =
-        {
-            // Front face
-            -1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 0,0,1,    1.0f, -1.0f,  1.0f, 1.0f, 0.0f, 0,0,1,   1.0f,  1.0f,  1.0f, 1.0f, 1.0f, 0,0,1,
-            -1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 0,0,1,    1.0f,  1.0f,  1.0f, 1.0f, 1.0f, 0,0,1,   -1.0f,  1.0f,  1.0f, 0.0f, 1.0f, 0,0,1,
-
-            // Back face
-            -1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 0,0,-1,   -1.0f,  1.0f, -1.0f, 1.0f, 1.0f, 0,0,-1,    1.0f,  1.0f, -1.0f, 0.0f, 1.0f, 0,0,-1,
-            -1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 0,0,-1,    1.0f,  1.0f, -1.0f, 0.0f, 1.0f, 0,0,-1,    1.0f, -1.0f, -1.0f, 0.0f, 0.0f, 0,0,-1,
-
-            // Top face
-            -1.0f,  1.0f, -1.0f, 0.0f, 1.0f, 0,1,0,   -1.0f,  1.0f,  1.0f, 0.0f, 0.0f, 0,1,0,    1.0f,  1.0f,  1.0f, 1.0f, 0.0f, 0,1,0,
-            -1.0f,  1.0f, -1.0f, 0.0f, 1.0f, 0,1,0,    1.0f,  1.0f,  1.0f, 1.0f, 0.0f, 0,1,0,    1.0f,  1.0f, -1.0f, 1.0f, 1.0f, 0,1,0,
-
-            // Bottom face
-            -1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 0,-1,0,    1.0f, -1.0f, -1.0f, 0.0f, 1.0f, 0,-1,0,    1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 0,-1,0,
-            -1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 0,-1,0,    1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 0,-1,0,   -1.0f, -1.0f,  1.0f, 1.0f, 0.0f, 0,-1,0,
-
-            // Right face
-            1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 1,0,0,     1.0f,  1.0f, -1.0f, 1.0f, 1.0f, 1,0,0,    1.0f,  1.0f,  1.0f, 0.0f, 1.0f, 1,0,0,
-            1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 1,0,0,     1.0f,  1.0f,  1.0f, 0.0f, 1.0f, 1,0,0,    1.0f, -1.0f,  1.0f, 0.0f, 0.0f, 1,0,0,
-
-            // Left face
-            -1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1,0,0,   -1.0f, -1.0f,  1.0f, 1.0f, 0.0f, -1,0,0,   -1.0f,  1.0f,  1.0f, 1.0f, 1.0f, -1,0,0,
-            -1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1,0,0,   -1.0f,  1.0f,  1.0f, 1.0f, 1.0f, -1,0,0,   -1.0f,  1.0f, -1.0f, 0.0f, 1.0f, -1,0,0
-        };
-
-        return cubeNormalData;
-    }
-
-    float* MyGLWidget::createCube()
-    {
-        static float cubeData[] =
-        {
-            // Front face
-            -1.0f, -1.0f,  1.0f, 0.0f, 0.0f,  1.0f, -1.0f,  1.0f, 1.0f, 0.0f,  1.0f,  1.0f,  1.0f, 1.0f, 1.0f,
-            -1.0f, -1.0f,  1.0f, 0.0f, 0.0f,  1.0f,  1.0f,  1.0f, 1.0f, 1.0f, -1.0f,  1.0f,  1.0f, 0.0f, 1.0f,
-
-            // Back face
-            -1.0f, -1.0f, -1.0f, 1.0f, 0.0f, -1.0f,  1.0f, -1.0f, 1.0f, 1.0f,  1.0f,  1.0f, -1.0f, 0.0f, 1.0f,
-            -1.0f, -1.0f, -1.0f, 1.0f, 0.0f,  1.0f,  1.0f, -1.0f, 0.0f, 1.0f,  1.0f, -1.0f, -1.0f, 0.0f, 0.0f,
-
-            // Top face
-            -1.0f,  1.0f, -1.0f, 0.0f, 1.0f, -1.0f,  1.0f,  1.0f, 0.0f, 0.0f,  1.0f,  1.0f,  1.0f, 1.0f, 0.0f,
-            -1.0f,  1.0f, -1.0f, 0.0f, 1.0f,  1.0f,  1.0f,  1.0f, 1.0f, 0.0f,  1.0f,  1.0f, -1.0f, 1.0f, 1.0f,
-
-            // Bottom face
-            -1.0f, -1.0f, -1.0f, 1.0f, 1.0f,  1.0f, -1.0f, -1.0f, 0.0f, 1.0f,  1.0f, -1.0f,  1.0f, 0.0f, 0.0f,
-            -1.0f, -1.0f, -1.0f, 1.0f, 1.0f,  1.0f, -1.0f,  1.0f, 0.0f, 0.0f, -1.0f, -1.0f,  1.0f, 1.0f, 0.0f,
-
-            // Right face
-            1.0f, -1.0f, -1.0f, 1.0f, 0.0f,  1.0f,  1.0f, -1.0f, 1.0f, 1.0f,  1.0f,  1.0f,  1.0f, 0.0f, 1.0f,
-            1.0f, -1.0f, -1.0f, 1.0f, 0.0f,  1.0f,  1.0f,  1.0f, 0.0f, 1.0f,  1.0f, -1.0f,  1.0f, 0.0f, 0.0f,
-
-            // Left face
-            -1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f, -1.0f,  1.0f, 1.0f, 0.0f, -1.0f,  1.0f,  1.0f, 1.0f, 1.0f,
-            -1.0f, -1.0f, -1.0f, 0.0f, 0.0f, -1.0f,  1.0f,  1.0f, 1.0f, 1.0f, -1.0f,  1.0f, -1.0f, 0.0f, 1.0f
-        };
-
-        return cubeData;
-    }
 
     void MyGLWidget::generateSphere (float radius, int sectors, int stacks)
     {
@@ -1039,126 +962,6 @@ namespace SimCore
         SIM_LOG (LM_INFO, "Globe reset to default position");
     }
 
-    GLuint MyGLWidget::loadTexture (std::array<int, 2>& mapSize, const QString& filePath, const int type = 1)
-    {
-        if (type < 1)
-        {
-            SIM_LOG (LM_CRITICAL, "Invalid texture type");
-            return 0;
-        }
-
-        if (filePath == nullptr)
-        {
-            SIM_LOG (LM_CRITICAL, "Empty or null texture file path");
-        }
-
-        QImageReader reader (filePath);
-        
-        // Bypass the default 128MB limit for an 8k texture
-        reader.setAllocationLimit (1024); 
-
-        if (!reader.canRead())
-        {
-            SIM_LOG (LM_CRITICAL, QString ("Cannot read image: %1").arg (reader.errorString()));
-            return 0;
-        }
-
-        if (type == 1)
-        {
-            // Optional: Downscale during load to stay within ROCm memory stability limits
-            //if (reader.size().width() > 8192)
-            {
-                reader.setScaledSize (QSize (mapSize[0], mapSize[1]));
-            }
-        }
-
-        QImage img = reader.read();
-
-        if (img.isNull())
-        {
-            SIM_LOG (LM_CRITICAL, QString ("Load failed: %1").arg (reader.errorString().toStdString().c_str()));
-            return 0;
-        }
-        else
-        {
-            SIM_LOG (LM_INFO, QString ("Reading texture file %1").arg (filePath));
-        }
-
-        if (type == 1)
-        {
-            // Convert to RGBA8888 for GL_RGBA8 compatibility
-            // Use flipped() to move the origin from top-left to bottom-left for OpenGL
-            img = img.convertToFormat (QImage::Format_RGBA8888).flipped (Qt::Horizontal);
-        }
-        else if (type == 2)
-        {
-            img = img.convertToFormat (QImage::Format_RGBA8888);
-        }
-
-        GLuint textureID;
-        glGenTextures (1, &textureID);
-        glBindTexture (GL_TEXTURE_2D, textureID);
-
-        if (type == 1)
-        {
-            // Texture parameters for the globe
-            glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-            glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        }
-        else if (type == 2)
-        {
-            // SDF Font Specifics: LINEAR filtering is mandatory for smooth scaling.
-            // We disable Mipmaps for SDF fonts to keep the distance field edges sharp.
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        }
-
-        // Upload to the RX 7800XT
-        glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, 
-                     img.width(), img.height(), 0, 
-                     GL_RGBA, GL_UNSIGNED_BYTE, img.constBits());
-
-        glGenerateMipmap (GL_TEXTURE_2D);
-
-        return textureID;
-    }
-
-    bool MyGLWidget::loadTextureFiles (std::array<int, 2>& mapSize)
-    {
-        for (int i = 0; i < Globe::TextureList.size(); i++)
-        {
-            std::map<std::string, QString> texture = Globe::TextureList.at (i);
-
-            if (texture.empty())
-            {
-                SIM_LOG (LM_CRITICAL, "No map found");
-                return false;
-            }
-
-            for (const auto& pair : Globe::TextureList.at (i))
-            {
-                // Indexes start at 0, but types start at 1
-                GLuint textureID = loadTexture (mapSize, pair.second, i+1);
-                
-                if (textureID > 0)
-                {
-                    Globe::textureMap.insert ({pair.first, textureID});
-                }
-                else
-                {
-                    SIM_LOG (LM_CRITICAL, "Fatal error: Texure ID is 0"); 
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
-
     bool MyGLWidget::initShader (QOpenGLShaderProgram* program, const QString& vPath, const QString& fPath)
     {
         program->removeAllShaders();
@@ -1188,7 +991,7 @@ namespace SimCore
         return true;
     }
 
-    bool MyGLWidget::registerShader (const QString& name, const QString& vFile, const QString& fFile)
+    bool MyGLWidget::registerShader_legacy (const QString& name, const QString& vFile, const QString& fFile)
     {
         bool result = true;
 
@@ -1211,6 +1014,108 @@ namespace SimCore
         }
 
         return result;
+    }
+
+    bool MyGLWidget::registerShader (const QString& name, const QString& vFile, const QString& fFile)
+    {
+        // SAFE PARSER: Loads and enforces strict 32-bit (4-byte) alignment for SPIR-V
+        auto loadSPIRV = [](const QString& filePath, std::vector<uint32_t>& buffer) -> bool {
+            std::ifstream file(filePath.toStdString(), std::ios::binary | std::ios::ate);
+            if (!file.is_open()) return false;
+
+            std::streamsize sizeInBytes = file.tellg();
+            if (sizeInBytes <= 0 || (sizeInBytes % 4) != 0) {
+                // SPIR-V specification requires bytecode to be a strict multiple of 4 bytes
+                return false; 
+            }
+
+            file.seekg(0, std::ios::beg);
+            
+            // Resize vector based on 32-bit words instead of single bytes
+            size_t wordCount = static_cast<size_t>(sizeInBytes / 4);
+            buffer.resize (wordCount);
+
+            file.read (reinterpret_cast<char*>(buffer.data()), sizeInBytes);
+            return file.good();
+        };
+
+        // 1. READ VECTOR DATA INTO WORD-ALIGNED STORAGE BUFFERS
+        std::vector<uint32_t> vertBin, fragBin;
+
+        if (!loadSPIRV(vFile, vertBin) || !loadSPIRV(fFile, fragBin)) {
+            SIM_LOG(LM_CRITICAL, QString("CRITICAL: SPIR-V file unaligned or missing: %1 or %2").arg(vFile).arg(fFile));
+            return false;
+        }
+
+        // 2. EXTRA SAFETY: Verify modern core extensions are fully exposed by Mesa/XCB
+        if (!GLAD_GL_ARB_gl_spirv) {
+            SIM_LOG(LM_CRITICAL, "CRITICAL: The graphics driver context lacks SPIR-V binary execution support!");
+            return false;
+        }
+
+        // 3. GENERATE THE NATIVE SHADER CONTAINER OBJECTS
+        GLuint vertShaderNum = glCreateShader(GL_VERTEX_SHADER);
+        GLuint fragShaderNum = glCreateShader(GL_FRAGMENT_SHADER);
+
+        // 4. FIXED: CALCULATE EXACT BYTE LENGTH CORES
+        GLsizei vertLengthInBytes = static_cast<GLsizei>(vertBin.size() * 4);
+        GLsizei fragLengthInBytes = static_cast<GLsizei>(fragBin.size() * 4);
+
+        // Explicit standard fallback hex token override for safety
+        const GLenum SPIRV_BINARY_FORMAT = 0x9551; 
+
+        // 5. UPLOAD STREAM DATA
+        glShaderBinary(1, &vertShaderNum, SPIRV_BINARY_FORMAT, vertBin.data(), vertLengthInBytes);
+        glShaderBinary(1, &fragShaderNum, SPIRV_BINARY_FORMAT, fragBin.data(), fragLengthInBytes);
+
+        // Check if glShaderBinary failed before attempting specialization
+        GLint vertCompiled = GL_FALSE, fragCompiled = GL_FALSE;
+
+        // 6. SPECALIZE CORES
+        glSpecializeShader(vertShaderNum, "main", 0, nullptr, nullptr);
+        glSpecializeShader(fragShaderNum, "main", 0, nullptr, nullptr);
+
+        glGetShaderiv(vertShaderNum, GL_COMPILE_STATUS, &vertCompiled);
+        glGetShaderiv(fragShaderNum, GL_COMPILE_STATUS, &fragCompiled);
+
+        if (vertCompiled == GL_FALSE || fragCompiled == GL_FALSE) {
+            // Collect Mesa driver compile errors if specialization drops
+            GLint logLength = 0;
+            glGetShaderiv(vertShaderNum, GL_INFO_LOG_LENGTH, &logLength);
+            std::vector<char> errorLog(logLength);
+            glGetShaderInfoLog(vertShaderNum, logLength, nullptr, errorLog.data());
+            
+            SIM_LOG(LM_CRITICAL, QString("CRITICAL: SPIR-V Loading Error for %1. Driver Log: %2")
+                    .arg(name).arg(errorLog.data()));
+                    
+            glDeleteShader(vertShaderNum);
+            glDeleteShader(fragShaderNum);
+            return false;
+        }
+
+        // 7. LINK DATA BACK INTO YOUR ACTIVE QT WRAPPER CACHE
+        QOpenGLShaderProgram* prog = new QOpenGLShaderProgram(this);
+        GLuint rawProgramId = prog->programId();
+
+        glAttachShader(rawProgramId, vertShaderNum);
+        glAttachShader(rawProgramId, fragShaderNum);
+        
+        glLinkProgram(rawProgramId);
+
+        GLint linkStatus = 0;
+        glGetProgramiv(rawProgramId, GL_LINK_STATUS, &linkStatus);
+
+        glDeleteShader(vertShaderNum);
+        glDeleteShader(fragShaderNum);
+
+        if (linkStatus == GL_FALSE) {
+            SIM_LOG(LM_CRITICAL, QString("CRITICAL: Program link failed for: %1.").arg(name));
+            delete prog;
+            return false;
+        }
+
+        Globe::m_shaders.insert(name, prog);
+        return true;
     }
 
     void MyGLWidget::initCapitals (QString filename)

@@ -1,7 +1,8 @@
-#version 430 core
+#version 460 core
 
 layout (location = 0) in vec3 aPos;
-uniform mat4 mvp;
+
+layout (location = 0) uniform mat4 mvp;
 
 void main()
 {

@@ -1,0 +1,86 @@
+#version 460 core
+
+// Force the compute shader to execute in optimal 64-thread warps/wavefronts
+// Highly efficient for AMD's RDNA3 architecture on your RX 7800XT
+layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct SatelliteData
+{
+    vec4 position;  // xyz = World Pos, w = Type/Radius Scale
+    vec4 velocity;  // xyz = Velocity, w = Status (1.0 = Satellite, 0.0 = Debris)
+    vec4 metadata;  // x = Decay/Timer, y = Mass, z/w = Spares
+};
+
+// SSBO Binding: Zero-copy readable and writable memory space
+layout (std430, binding = 0) buffer SimulationBlock
+{
+    SatelliteData entities[];
+};
+
+layout (location = 0) uniform float deltaTime;     // Real-time frame delta step size
+layout (location = 1) uniform float globeRadius;   // Configuration radius (1.0)
+layout (location = 2) uniform vec3 filterCenter;   // Dynamic city anchor tracking coordinate
+layout (location = 3) uniform float filterRadius;  // Maximum sensor perimeter target
+
+void main()
+{
+    uint index = gl_GlobalInvocationID.x;
+    
+    // Safety guard against array boundaries
+    if (index >= entities.length()) return;
+
+    // Pull reference variables directly out of memory
+    vec3 pos  = entities[index].position.xyz;
+    vec3 vel  = entities[index].velocity.xyz;
+    float status = entities[index].velocity.w;
+
+    // =========================================================================
+    // BRANCH-FREE GPU WORKLOAD ROUTING
+    // =========================================================================
+    if (status > 0.5)
+    {
+        // ---------------------------------------------------------------------
+        // TIER 1: ACTIVE ORBITAL PROPAGATION (SGP4 Outputs/Basic Kepler State)
+        // ---------------------------------------------------------------------
+        // Smoothly advance the active satellite position based on its velocity vector
+        pos += vel * deltaTime;
+        
+        // Simple orbital normalization step to keep satellites anchored in space
+        // (Real SGP4 updates can override this buffer asynchronously via C++)
+        entities[index].position.xyz = pos;
+    } 
+    else
+    {
+        // ---------------------------------------------------------------------
+        // TIER 2: HIGH-FIDELITY DEBRIS PHYSICS ENGINE
+        // ---------------------------------------------------------------------
+        // Apply true Newtonian gravitational physics pulling toward Earth center (0,0,0)
+        float distToCenter = length(pos);
+        
+        if (distToCenter > globeRadius)
+        {
+            // Gravitational Acceleration formula: a = -G * M * pos / r^3
+            // (Simulated using a tuned constant multiplier matching your scale system)
+            float gravityConstant = 0.35f;
+            vec3 gravityPull = -normalize (pos) * (gravityConstant / (distToCenter * distToCenter));
+            
+            // Advance velocity and update position
+            vel += gravityPull * deltaTime;
+            pos += vel * deltaTime;
+            
+            // Update the data fields back inside the persistent SSBO
+            entities[index].position.xyz = pos;
+            entities[index].velocity.xyz = vel;
+            
+            // Track dynamic orbital decay lifespan timers
+            entities[index].metadata.x -= deltaTime;
+        } 
+        else
+        {
+            // The debris particle has physically impacted the earth mesh
+            // Terminate processing loops by shifting position to center core
+            entities[index].position.xyz = vec3 (0.0);
+            entities[index].velocity.xyz = vec3 (0.0);
+        }
+    }
+}

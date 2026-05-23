@@ -1,10 +1,11 @@
-#version 430 core
+#version 460 core
 
 layout (location = 0) in vec3 pos; // Satellite world position
-uniform mat4 mvp;
-uniform vec3 filterCenter;
-uniform float filterRadius;
-uniform bool filterEnabled;
+
+layout (location = 0) uniform mat4 mvp;
+layout (location = 4) uniform vec3 filterCenter;
+layout (location = 5) uniform float filterRadius;
+layout (location = 6) uniform bool filterEnabled;
 
 void main()
 {
@@ -39,5 +40,5 @@ void main()
 
     gl_Position = mvp * vec4 (pos, 1.0);
     // Control point size directly in the shader
-    gl_PointSize = 10.0; 
+    gl_PointSize = 8.0; 
 }
