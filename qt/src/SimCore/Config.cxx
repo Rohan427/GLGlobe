@@ -121,7 +121,7 @@ QString Config::getDataDirPath()
 
 QString Config::getDataFileSatSuffix()
 {
-DATA_FILE_SAT_SUFFIX = QString::fromStdString (getString ("dataFileSatSuffix"));
+    DATA_FILE_SAT_SUFFIX = QString::fromStdString (getString ("dataFileSatSuffix"));
 
     return DATA_FILE_SAT_SUFFIX;
 }
@@ -202,6 +202,20 @@ float Config::getRangeRingDelta()
     RANGE_RING_DELTA = (float)getDouble ("rangeRingDelta");
 
     return RANGE_RING_DELTA;
+}
+
+int Config::getMaxObjects()
+{
+    MAX_OBJECTS = (int)getUint64 ("maxObjects");
+
+    return MAX_OBJECTS;
+}
+
+int Config::getMaxMissiles()
+{
+    MAX_MISSILES = (int)getUint64 ("maxMissiles");
+
+    return MAX_MISSILES;
 }
 
 
@@ -326,6 +340,8 @@ bool Config::update()
                     getCityColor();
                     getRangeRingColor();
                     getRangeRingDelta();
+                    getMaxObjects();
+                    getMaxMissiles();
 
                     std::time (&timestamp);
                 }

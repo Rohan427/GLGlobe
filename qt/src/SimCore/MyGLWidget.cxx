@@ -1,6 +1,7 @@
 #include "MyGLWidget.hxx"
 #include "MainWindow.hxx"
 #include "Tracking.hxx"
+#include "DataObjects.hxx"
 
 
 namespace SimCore
@@ -39,7 +40,9 @@ namespace SimCore
         if (!gladLoadGL (reinterpret_cast<GLADloadfunc> (+gladProcLoader)))
         {
             SIM_LOG (LM_CRITICAL, "CRITICAL: GLAD 2 failed to resolve OpenGL 4.6 Core function pointers!");
-            return;
+            QCoreApplication::exit (-1);
+
+            std::exit (-1); 
         }
 
         SIM_LOG (LM_INFO, "GLAD 2 initialized successfully. OpenGL 4.6 Core Driver hooks active.");
@@ -53,11 +56,12 @@ namespace SimCore
         Globe::m_offset = ::Config::getInstance().DEFAULT_OFFSET;   // for dragging
         Globe::m_ambientLevel = ::Config::getInstance().DEFAULT_AMBIENT;
 
-        // Radius 1.5, 64 sectors/stacks
+        // Default radius and stacks (set to 1.0, 64, 64 in the default config file)
         Globe::globeRadius = ::Config::getInstance().DEFAULT_RADIUS;
         Globe::globeSectors = ::Config::getInstance().DEFAULT_SECTORS;
         Globe::globeStacks = ::Config::getInstance().DEFAULT_STACKS;
 
+        // Setup constant Earth radius using in SGP4 internat value
         Globe::earthRadiusKm = libsgp4::kXKMPER;
         Globe::glScaleFactor = Globe::globeRadius / static_cast<float> (Globe::earthRadiusKm);
 
@@ -74,32 +78,28 @@ namespace SimCore
         m_entityManager = new SimCore::EntityManager();
         m_entityManager->m_updatingEntities = false;
 
-        std::cout << "Check resources" << std::endl;
+        // Initialize entity SSBO
+        if (!allocateSimulationSSBO (::Config::getInstance().MAX_OBJECTS))
+        {
+            SIM_LOG (LM_CRITICAL, "FATAL INTERLOCK: Persistent SSBO allocations failed. Exiting Application.");
+            
+            // Force a clean runtime exit to protect system drivers from memory corruption
+            QCoreApplication::exit (-1);
+
+            std::exit (-1); 
+        }
+
+        ::glGenVertexArrays (1, &m_dummyVaoId);
+        ::glBindVertexArray (m_dummyVaoId);
+        // We leave it empty—no attributes enabled, no offsets set. 
+        ::glBindVertexArray (0);
+
+        SIM_LOG (LM_INFO, "Core Profile Validation: Clean dummy VAO initialized successfully.");
 
         int numThreads = std::thread::hardware_concurrency(); 
         if (numThreads == 0) numThreads = 16; // Fallback
 
         initializeOpenGLFunctions(); // Required in Qt to access gl* calls
-
-        // Initialize satellite VBO
-        m_satPositions.reserve (MAX_SATELLITES * sizeof (QVector3D));
-        glGenVertexArrays (1, &m_satVao);
-        glGenBuffers (1, &m_satVbo);
-
-        glBindVertexArray (m_satVao);
-        glBindBuffer (GL_ARRAY_BUFFER, m_satVbo);
-
-
-        // Initialize Sensor VAO
-
-        // Pre-allocate space for, say, 50,000 satellites
-        glBufferData (GL_ARRAY_BUFFER, MAX_SATELLITES * sizeof (QVector3D), nullptr, GL_STREAM_DRAW);
-
-        glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, sizeof (QVector3D), (void*)0);
-        glEnableVertexAttribArray (0);
-
-        glBindVertexArray (0);
-
 
         // Initialize City VBO
         glGenVertexArrays (1, &m_cityVao);
@@ -130,28 +130,12 @@ namespace SimCore
         // Enable MSAA
         glEnable (GL_MULTISAMPLE);
 
-        // If black screen appears after moving to 4.3, add this to initializeGL
+        // If black screen appears after moving to 4.6, add this to initializeGL
         m_vao.create();
         m_vao.bind();
 
         // 1. Simple Shaders (Passes texture and coordinates)
         m_program = new QOpenGLShaderProgram (this);
-
-    //    registerShader ("Standard", "shaders/Earth.vert", "shaders/Earth.frag");
-
-        // Globe shaders
-        //registerShader_legacy ("NightLights", "shaders/Earth.vert", "shaders/Earth-night.frag");
-        //registerShader_legacy ("BumpLights", "shaders/Earth-Bump.vert", "shaders/Earth-Bump.frag");
-        //registerShader_legacy ("CityPoints", "shaders/Simple-Point.vert", "shaders/Simple-Point.frag");
-        //registerShader_legacy ("RangeRings", "shaders/Sensor-Sphere.vert", "shaders/Sensor-Sphere.frag");
-
-        //// Object shaders
-        //registerShader_legacy ("Satellites", "shaders/Satellite.vert", "shaders/Satellite.frag");
-
-        //// Font shaders
-        //registerShader_legacy ("CityFonts", "shaders/CityLabel.vert", "shaders/CityLabel.frag");
-
-
 
         // Globe shaders
         registerShader ("NightLights", "shaders/Earth.vert.spv", "shaders/Earth-night.frag.spv");
@@ -161,9 +145,13 @@ namespace SimCore
 
         // Object shaders
         registerShader ("Satellites", "shaders/Satellite.vert.spv", "shaders/Satellite.frag.spv");
+        registerShader ("MissilePaths", "shaders/MissilePath.vert.spv", "shaders/MissilePath.frag.spv");
 
         // Font shaders
         registerShader ("CityFonts", "shaders/CityLabel.vert.spv", "shaders/CityLabel.frag.spv");
+
+        // Physics compute shader
+        registerShader ("PhysicsEngine", "shaders/physics_engine.comp.spv", ""); // Compute has empty fragment parameter
         
 
         // Set the default
@@ -195,7 +183,6 @@ namespace SimCore
         nightTextureID = Globe::textureMap["earthnight16k"];
         bumpTextureID =  Globe::textureMap["earthbump16k"];
         fontTexture = Globe::textureMap["arialFont"];
-        //textureID = textureMap["earth16k"];
 
 
         // Fonts
@@ -212,7 +199,7 @@ namespace SimCore
         // Bind and Upload
         glBindBuffer (GL_ARRAY_BUFFER, m_fontManager->m_labelVbo);
 
-        int stride = sizeof(Globe::LabelVertex); // This will now be exactly 28 bytes
+        int stride = sizeof (Globe::LabelVertex); // This will now be exactly 28 bytes
 
         glBufferData (GL_ARRAY_BUFFER, Globe::m_cityLabels.size() * stride, Globe::m_cityLabels.data(), GL_STATIC_DRAW);
 
@@ -231,8 +218,6 @@ namespace SimCore
 
         glBindVertexArray (0); // Clean up state
 
-//        std::cout << "Texture ID is " << textureID << std::endl;
-
         initializeGlobePosition();
 
         Globe::timer.start();
@@ -246,6 +231,7 @@ namespace SimCore
                     {
                         // Access the network source and trigger the update
                         auto* m_satelliteSource = MainWindow::instance()->getSatelliteSource();
+
                         if (m_satelliteSource) m_satelliteSource->requestGroup();
                     }
                 );
@@ -253,7 +239,8 @@ namespace SimCore
         //Connect NOW that we know m_entityManager is not null
         bool success = connect (m_satelliteSource, &Network::BaseDataSource::dataReceived,
                                 m_entityManager, &SimCore::EntityManager::processTleData,
-                                Qt::UniqueConnection); // <--- This prevents the signal from firing twice
+                                Qt::UniqueConnection // <--- This prevents the signal from firing twice
+                               );
         
         if (success)
         {
@@ -269,6 +256,7 @@ namespace SimCore
     {
         SIM_LOG (LM_DEBUG, "paintGL");
 
+        /*************** Setup and draw the globe *****************/
         glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glEnable (GL_DEPTH_TEST);
         glDepthFunc (GL_LESS);
@@ -282,9 +270,17 @@ namespace SimCore
         QMatrix4x4 projection;
         projection.perspective (::Config::getInstance().DEFAULT_PERSPECTIVE, aspect, 0.1f, 100.0f);
 
-        // View (The Camera/Mouse controls)
+        // VCompute the dynamic pull-back multiplier relative to the active radius configuration
+        // This maintains the exact same proportional visual distance whether radius is 0.5, 1.0, or 1.5.
+        float dynamicRadiusScalar = ::Config::getInstance().DEFAULT_RADIUS * 6.66667f;
+
         QMatrix4x4 view;
-        view.translate (Globe::m_offset.x(), Globe::m_offset.y(), -10.0f * Globe::m_zoom);
+
+        // 2. Translate matrix using the safe, relative scalar
+        view.translate (Globe::m_offset.x(), 
+                        Globe::m_offset.y(), 
+                        -dynamicRadiusScalar * Globe::m_zoom
+                       );
 
         // These rotations let the mouse "orbit" the globe
         view.rotate (Globe::m_rotation.x(), 1.0f, 0.0f, 0.0f);
@@ -314,7 +310,7 @@ namespace SimCore
         Globe::viewMatrix = view;
         Globe::projectMatrix = projection;
        
-        // 4. Update Uniforms
+        // Update Uniforms
         m_program->bind();
         m_program->setUniformValue (17, Globe::m_ambientLevel);
         m_program->setUniformValue (4, model);
@@ -336,7 +332,7 @@ namespace SimCore
         glBindTexture (GL_TEXTURE_2D, bumpTextureID);
         m_program->setUniformValue (15, 2);
 
-        // 3. Drawing
+        // Drawing
         m_vao.bind();
         m_vbo.bind();
         int stride = 8 * sizeof (float);
@@ -353,11 +349,13 @@ namespace SimCore
 
         m_program->release();
 
+        /*************** Draw sensor rings (if enabled) *****************/
+
         SIM_LOG (LM_DEBUG, "paintGL Initialize sensor range");
         // Used for sensor filter
         float glDetectionRange = m_entityManager->m_tracker->m_detectionRange - Globe::globeRadius;
 
-        // PULL THE METRIC POSITION DIRECTLY FROM YOUR CITY MARKER UNIFORM
+        // PULL THE METRIC POSITION DIRECTLY FROM THE CITY MARKER UNIFORM
         QVector3D localFilterCenter = m_entityManager->m_tracker->m_filterAnchor;
 
         // Calculate the true world position for the shader tracking uniform
@@ -381,13 +379,6 @@ namespace SimCore
             QMatrix4x4 invView = view.inverted();
             QVector3D extractedCameraPos = QVector3D (invView (0, 3), invView (1, 3), invView (2, 3));
 
-            // PULL THE METRIC POSITION DIRECTLY FROM YOUR CITY MARKER UNIFORM
-////            QVector3D localFilterCenter = m_entityManager->m_tracker->m_filterAnchor;
-
-            // Calculate the true world position for the shader tracking uniform
-////            QVector4D rotatedCenter4 = model * QVector4D (localFilterCenter, 1.0f);
-////            QVector3D worldFilterCenter = rotatedCenter4.toVector3D();
-
             QVector3D ringColorVec = QVector3D(::Config::getInstance().RANGE_RING_COLOR.x(),
                                                ::Config::getInstance().RANGE_RING_COLOR.y(),
                                                ::Config::getInstance().RANGE_RING_COLOR.z()
@@ -395,12 +386,6 @@ namespace SimCore
 
             // Convert your range spacing and max limits to matching fractional GL scales
             float glRingDelta      = m_entityManager->m_tracker->m_RngRingDelta;
-            
-
-            //ACE_DEBUG ((LM_DEBUG, "Ring delta: %f %f, Max Range: %f %f\n",
-            //            m_entityManager->m_tracker->m_RngRingDelta, glRingDelta,
-            //            m_entityManager->m_tracker->m_detectionRange, glDetectionRange)
-            //          );
 
             m_program->bind();
             m_program->setUniformValue (4, view); // view
@@ -434,7 +419,6 @@ namespace SimCore
                 localRingModel.scale (currentRadius); 
 
                 m_program->setUniformValue (0, localRingModel); // model
-//                m_program->setUniformValue ("mvp", projection * view * localRingModel); // mvp
 
                 glDrawArrays (GL_TRIANGLES, 0, vertexCount);
 
@@ -449,7 +433,6 @@ namespace SimCore
             localRingModel.scale (glDetectionRange); 
 
             m_program->setUniformValue (0, localRingModel); // model
-//            m_program->setUniformValue ("mvp", projection * view * localRingModel); // mvp
 
             glDrawArrays (GL_TRIANGLES, 0, vertexCount);
 
@@ -465,65 +448,10 @@ namespace SimCore
             glDisable (GL_BLEND);
         }
 
+        /*************** Draw satellites *****************/
         SIM_LOG (LM_DEBUG, "paintGL Begin satellite processing");
-        /******************** Draw satellites *******************/
-        // 1. Gather latest positions from ACE threads
-        if (setActiveShader ("Satellites"))
-        {
-            if (SimCore::EntityManager::m_vectorLock.tryacquire() == 0)
-            {
-                m_satPositions.clear(); 
-                const auto& entities = m_entityManager->getEntities();
 
-                for (auto* entity : entities)
-                {
-                    if (entity) m_satPositions.push_back (entity->getPosition());
-                }
-
-                SimCore::EntityManager::m_vectorLock.release();
-                
-                // 2. Only upload to GPU if we actually refreshed the data
-                glBindBuffer (GL_ARRAY_BUFFER, m_satVbo);
-                // Orphan and upload
-                glBufferData (GL_ARRAY_BUFFER, MAX_SATELLITES * sizeof (QVector3D), nullptr, GL_STREAM_DRAW);
-                glBufferSubData (GL_ARRAY_BUFFER, 0, m_satPositions.size() * sizeof (QVector3D), m_satPositions.data());
-            }
-
-            // Draw all satellites in ONE call
-            if (!m_satPositions.empty())
-            {
-                m_program->bind();
-                m_program->setUniformValue (0, mvp); // mvp
-                m_program->setUniformValue (7, 1.0f, 0.0f, 1.0f); // Magenta, satColor
-                m_program->setUniformValue (6, m_entityManager->m_tracker->m_filterActive); // filterEnabled
-
-                if (m_entityManager->m_tracker->m_filterActive)
-                {
-                    m_program->setUniformValue (4, m_entityManager->m_tracker->m_filterAnchor); // filterCenter
-                    m_program->setUniformValue (5, glDetectionRange); // filterRadius
-                }
-
-                glEnable (GL_PROGRAM_POINT_SIZE); // Enables gl_PointSize from shader
-                glEnable (GL_BLEND);
-                glBlendFunc (GL_SRC_ALPHA, GL_ONE); // Additive blend makes them "glow"
-                
-                glBindVertexArray (m_satVao);
-                glDepthFunc (GL_LEQUAL); 
-
-    //            std::cout << "Drawing " << m_satPositions.size() << " sats" << std::endl;
-
-                glDrawArrays (GL_POINTS, 0, (GLsizei)m_satPositions.size());
-
-                glBindVertexArray (0);
-                glDisable (GL_BLEND);
-
-                m_program->release();
-
-//                std::cout << "     rendering done" << std::endl;
-            }
-        }
-        /*********************** END SATILLITES *********************/
-
+        renderSatellitePoints (mvp);
 
         // FPS Logic
         static int frames = 0;
@@ -747,12 +675,25 @@ namespace SimCore
 
     void MyGLWidget::wheelEvent (QWheelEvent *event)
     {
-        float delta = event->angleDelta().y() > 0 ? 1.1f : 0.9f;
-        Globe::m_zoom *= delta;
+        // EXTRACT THE DIRECT VERTICAL SCROLL VALUE
+        // event->angleDelta().y() returns positive for rolling up, negative for rolling down.
+        // We fetch this as a standard float parameter.
+        float wheelDelta = static_cast<float> (event->angleDelta().y());
 
+        // Scale the zoom parameter relative to your tracking limits
+        Globe::m_zoom -= (wheelDelta * ZOOMSPEEDFACTOR);
+
+        // =========================================================================
+        // 3. CLEAN CONFIGURATION CLAMP FENCES (NO MAGIC NUMBERS)
+        // =========================================================================
+        // Uses the established, hard-checked configuration constants
         if (Globe::m_zoom < ZOOM_CLAMP)
         {
-            Globe::m_zoom = ZOOM_CLAMP;
+            Globe::m_zoom = ZOOM_CLAMP; // Stops lens from clipping the 1.0 terrain mesh
+        } 
+        else if (Globe::m_zoom > MAXPULLBACKLIMIT)
+        {
+            Globe::m_zoom = MAXPULLBACKLIMIT; // Caps maximum pull-back range limits
         }
 
         updateStatus();
@@ -1007,8 +948,8 @@ namespace SimCore
         else
         {
             SIM_LOG (LM_CRITICAL, QString ("CRITICAL: Failed to link shader: %1, %2")
-                                          .arg (name.toStdString())
-                                          .arg (prog->log().toStdString())
+                     .arg (name.toStdString())
+                     .arg (prog->log().toStdString())
                     );
             result = false;
         }
@@ -1019,102 +960,154 @@ namespace SimCore
     bool MyGLWidget::registerShader (const QString& name, const QString& vFile, const QString& fFile)
     {
         // SAFE PARSER: Loads and enforces strict 32-bit (4-byte) alignment for SPIR-V
-        auto loadSPIRV = [](const QString& filePath, std::vector<uint32_t>& buffer) -> bool {
-            std::ifstream file(filePath.toStdString(), std::ios::binary | std::ios::ate);
+        auto loadSPIRV = [](const QString& filePath, std::vector<uint32_t>& buffer) -> bool
+        {
+            std::ifstream file (filePath.toStdString(), std::ios::binary | std::ios::ate);
+
             if (!file.is_open()) return false;
 
             std::streamsize sizeInBytes = file.tellg();
-            if (sizeInBytes <= 0 || (sizeInBytes % 4) != 0) {
+
+            if (sizeInBytes <= 0 || (sizeInBytes % 4) != 0)
+            {
                 // SPIR-V specification requires bytecode to be a strict multiple of 4 bytes
                 return false; 
             }
 
-            file.seekg(0, std::ios::beg);
+            file.seekg (0, std::ios::beg);
             
-            // Resize vector based on 32-bit words instead of single bytes
-            size_t wordCount = static_cast<size_t>(sizeInBytes / 4);
-            buffer.resize (wordCount);
+            // FIXED SAFETY PAD: Calculate how many extra alignment bytes are needed
+            std::vector<char> rawBytes (sizeInBytes);
+            file.read (rawBytes.data(), sizeInBytes);
 
-            file.read (reinterpret_cast<char*>(buffer.data()), sizeInBytes);
+            size_t paddedSize = static_cast<size_t> (sizeInBytes);
+            while ((paddedSize % 4) != 0)
+            {
+                rawBytes.push_back ('\0'); // Append trailing null vectors until exactly 4-byte aligned
+                paddedSize++;
+            }
+
+            size_t wordCount = paddedSize / 4;
+            buffer.resize (wordCount);
+            std::memcpy (buffer.data(), rawBytes.data(), paddedSize);
+
             return file.good();
         };
+
+        // 1. DETERMINE SIMULATION TYPE
+        // If the fragment path is empty, we are handling a standalone Compute Shader!
+        bool isComputeShader = fFile.isEmpty();
 
         // 1. READ VECTOR DATA INTO WORD-ALIGNED STORAGE BUFFERS
         std::vector<uint32_t> vertBin, fragBin;
 
-        if (!loadSPIRV(vFile, vertBin) || !loadSPIRV(fFile, fragBin)) {
-            SIM_LOG(LM_CRITICAL, QString("CRITICAL: SPIR-V file unaligned or missing: %1 or %2").arg(vFile).arg(fFile));
+        if (!loadSPIRV (vFile, vertBin))
+        {
+            SIM_LOG (LM_CRITICAL, QString ("CRITICAL: SPIR-V file unaligned or missing: %1 or %2")
+                     .arg (vFile)
+                     .arg (fFile)
+                    );
+
             return false;
         }
+
+        //Only load the secondary file if this is a graphics pipeline
+        if (!isComputeShader)
+        {
+                if (!loadSPIRV (fFile, fragBin))
+                {
+                    SIM_LOG (LM_CRITICAL, QString("CRITICAL: SPIR-V fragment file missing or unaligned: %1")
+                             .arg (fFile)
+                            );
+
+                    return false;
+                }
+            }
 
         // 2. EXTRA SAFETY: Verify modern core extensions are fully exposed by Mesa/XCB
-        if (!GLAD_GL_ARB_gl_spirv) {
-            SIM_LOG(LM_CRITICAL, "CRITICAL: The graphics driver context lacks SPIR-V binary execution support!");
+        if (!GLAD_GL_ARB_gl_spirv)
+        {
+            SIM_LOG (LM_CRITICAL, "CRITICAL: The graphics driver context lacks SPIR-V binary execution support!");
             return false;
         }
 
-        // 3. GENERATE THE NATIVE SHADER CONTAINER OBJECTS
-        GLuint vertShaderNum = glCreateShader(GL_VERTEX_SHADER);
-        GLuint fragShaderNum = glCreateShader(GL_FRAGMENT_SHADER);
+        // 2. CREATE NATIVE HARDWARE SHADER HANDLES
+        // Route to GL_COMPUTE_SHADER or GL_VERTEX_SHADER based on your type flag
+        GLuint primaryShaderNum = ::glCreateShader (isComputeShader ? GL_COMPUTE_SHADER : GL_VERTEX_SHADER);
+        GLuint fragShaderNum    = isComputeShader ? 0 : ::glCreateShader (GL_FRAGMENT_SHADER);
 
-        // 4. FIXED: CALCULATE EXACT BYTE LENGTH CORES
-        GLsizei vertLengthInBytes = static_cast<GLsizei>(vertBin.size() * 4);
-        GLsizei fragLengthInBytes = static_cast<GLsizei>(fragBin.size() * 4);
 
         // Explicit standard fallback hex token override for safety
         const GLenum SPIRV_BINARY_FORMAT = 0x9551; 
 
-        // 5. UPLOAD STREAM DATA
-        glShaderBinary(1, &vertShaderNum, SPIRV_BINARY_FORMAT, vertBin.data(), vertLengthInBytes);
-        glShaderBinary(1, &fragShaderNum, SPIRV_BINARY_FORMAT, fragBin.data(), fragLengthInBytes);
+        // 3. UPLOAD RAW BAYTECODE PAYLOADS
+        ::glShaderBinary (1, &primaryShaderNum, 
+                          SPIRV_BINARY_FORMAT,
+                          vertBin.data(),
+                          static_cast<GLsizei>(vertBin.size() * 4)
+                         );
+        ::glSpecializeShader (primaryShaderNum, "main", 0, nullptr, nullptr);
 
-        // Check if glShaderBinary failed before attempting specialization
-        GLint vertCompiled = GL_FALSE, fragCompiled = GL_FALSE;
+        if (!isComputeShader)
+        {
+            ::glShaderBinary (1, &fragShaderNum,
+                              SPIRV_BINARY_FORMAT,
+                              fragBin.data(),
+                              static_cast<GLsizei> (fragBin.size() * 4)
+                             );
+            ::glSpecializeShader (fragShaderNum, "main", 0, nullptr, nullptr);
+        }
 
-        // 6. SPECALIZE CORES
-        glSpecializeShader(vertShaderNum, "main", 0, nullptr, nullptr);
-        glSpecializeShader(fragShaderNum, "main", 0, nullptr, nullptr);
+        // Validate shader specialization success
+        GLint primaryCompiled = GL_FALSE, fragCompiled = GL_TRUE;
+        ::glGetShaderiv (primaryShaderNum, GL_COMPILE_STATUS, &primaryCompiled);
 
-        glGetShaderiv(vertShaderNum, GL_COMPILE_STATUS, &vertCompiled);
-        glGetShaderiv(fragShaderNum, GL_COMPILE_STATUS, &fragCompiled);
+        if (!isComputeShader)
+        {
+            ::glGetShaderiv (fragShaderNum, GL_COMPILE_STATUS, &fragCompiled);
+        }
 
-        if (vertCompiled == GL_FALSE || fragCompiled == GL_FALSE) {
-            // Collect Mesa driver compile errors if specialization drops
-            GLint logLength = 0;
-            glGetShaderiv(vertShaderNum, GL_INFO_LOG_LENGTH, &logLength);
-            std::vector<char> errorLog(logLength);
-            glGetShaderInfoLog(vertShaderNum, logLength, nullptr, errorLog.data());
-            
-            SIM_LOG(LM_CRITICAL, QString("CRITICAL: SPIR-V Loading Error for %1. Driver Log: %2")
-                    .arg(name).arg(errorLog.data()));
-                    
-            glDeleteShader(vertShaderNum);
-            glDeleteShader(fragShaderNum);
+        if (primaryCompiled == GL_FALSE || fragCompiled == GL_FALSE)
+        {
+            SIM_LOG (LM_CRITICAL, QString ("CRITICAL: SPIR-V Specialization failed for target program: %1").arg (name));
+            ::glDeleteShader (primaryShaderNum);
+
+            if (!isComputeShader) ::glDeleteShader (fragShaderNum);
+
             return false;
         }
 
-        // 7. LINK DATA BACK INTO YOUR ACTIVE QT WRAPPER CACHE
-        QOpenGLShaderProgram* prog = new QOpenGLShaderProgram(this);
+        // 4. LINK INTO YOUR SHADER PROGRAM CACHE
+        QOpenGLShaderProgram* prog = new QOpenGLShaderProgram (this);
         GLuint rawProgramId = prog->programId();
 
-        glAttachShader(rawProgramId, vertShaderNum);
-        glAttachShader(rawProgramId, fragShaderNum);
+        ::glAttachShader (rawProgramId, primaryShaderNum);
+
+        if (!isComputeShader)
+        {
+            ::glAttachShader (rawProgramId, fragShaderNum);
+        }
         
-        glLinkProgram(rawProgramId);
+        ::glLinkProgram(rawProgramId);
 
         GLint linkStatus = 0;
-        glGetProgramiv(rawProgramId, GL_LINK_STATUS, &linkStatus);
+        ::glGetProgramiv (rawProgramId, GL_LINK_STATUS, &linkStatus);
 
-        glDeleteShader(vertShaderNum);
-        glDeleteShader(fragShaderNum);
+        ::glDeleteShader (primaryShaderNum);
 
-        if (linkStatus == GL_FALSE) {
-            SIM_LOG(LM_CRITICAL, QString("CRITICAL: Program link failed for: %1.").arg(name));
+        if (!isComputeShader) ::glDeleteShader (fragShaderNum);
+
+        if (linkStatus == GL_FALSE)
+        {
+            SIM_LOG (LM_CRITICAL, QString ("CRITICAL: Program link failed for target pipeline: %1.").arg (name));
             delete prog;
+
             return false;
         }
 
-        Globe::m_shaders.insert(name, prog);
+        // Cache the fully optimized pre-compiled target program securely
+        Globe::m_shaders.insert (name, prog);
+
         return true;
     }
 
@@ -1232,20 +1225,224 @@ namespace SimCore
         // If no files or they are old, trigger a fresh download
         m_satelliteSource->requestGroup (groupKey);
     }
-}
+
+    bool MyGLWidget::allocateSimulationSSBO (int totalEntities)
+    {
+        this->makeCurrent();
+
+        if (::glGenBuffers == nullptr || ::glBindBuffer == nullptr || ::glMapBufferRange == nullptr)
+        {
+            SIM_LOG (LM_CRITICAL, "CRITICAL: allocateSimulationSSBO failed. GLAD 2 pointers are NULL!");
+            return false;
+        }
+
+        // =========================================================================
+        // 1. ALLOCATE SATELLITE SSBO CONTAINER (BINDING SLOT 0)
+        // =========================================================================
+        ::glGenBuffers (1, &m_ssboHardwareId);
+
+        if (m_ssboHardwareId == 0)
+        {
+            SIM_LOG (LM_CRITICAL, "SSBO ALLOCATION FAILURE: Driver failed to generate ID for Satellite Buffer.");
+            return false;
+        }
+
+        ::glBindBuffer (GL_SHADER_STORAGE_BUFFER, m_ssboHardwareId);
+
+        GLsizeiptr bufferSize = totalEntities * sizeof (DataObjects::GpuEntityData);
+
+        // PERSISTENT STORAGE FLAGS:
+        // GL_MAP_WRITE_BIT: Thread blocks can write directly to this structure
+        // GL_MAP_PERSISTENT_BIT: Pointer remains valid continuously across frames without unmapping
+        // GL_MAP_COHERENT_BIT: Writes are automatically made visible to the GPU instantly
+        GLbitfield storageFlags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT | GL_DYNAMIC_STORAGE_BIT;
+        GLbitfield mapFlags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+        
+        ::glBufferStorage (GL_SHADER_STORAGE_BUFFER, bufferSize, nullptr, storageFlags);
+
+        // Map the GPU memory permanently into a CPU pointer address
+        m_persistentBufferPtr = reinterpret_cast<DataObjects::GpuEntityData*>(
+                                 ::glMapBufferRange (GL_SHADER_STORAGE_BUFFER, 0, bufferSize, mapFlags)
+                                );
+
+        if (m_persistentBufferPtr == nullptr)
+        {
+            GLenum error = ::glGetError();
+
+            SIM_LOG (LM_CRITICAL, QString ("CRITICAL: Satellite Map range failed. Driver code: 0x%1")
+                     .arg (error, 0, 16)
+                    );
+
+            return false;
+        }
+
+        // Connect this buffer permanently to Global Layout Binding slot 0
+        ::glBindBufferBase (GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
+        ::glBindBuffer (GL_SHADER_STORAGE_BUFFER, 0);
+
+        SIM_LOG (LM_INFO, QString ("Zero-Copy Persistent SSBO Initialized. Mapped %1 bytes to GPU slot 0.")
+                 .arg (bufferSize)
+                );
+        
+        // Pass the pointer to the EntityManager so the 32 threads can see it
+        m_entityManager->setGpuBufferPointer (m_persistentBufferPtr);
+
+        // =========================================================================
+        // 2. ALLOCATE MISSILE TRAJECTORY SSBO CONTAINER (BINDING SLOT 1)
+        // =========================================================================
+        ::glGenBuffers (1, &m_trajectorySsboId);
+
+        if (m_trajectorySsboId == 0)
+        {
+            SIM_LOG (LM_CRITICAL, "SSBO ALLOCATION FAILURE: Driver failed to generate ID for Missile Buffer.");
+            return false;
+        }
+
+        ::glBindBuffer (GL_SHADER_STORAGE_BUFFER, m_trajectorySsboId);
+
+        // Sizing for MAX_MISSILES (default is 1000) active missiles, each containing a 64-vertex smooth rendering curve path
+        GLsizeiptr trailBufferSize = ::Config::getInstance().MAX_MISSILES * 64 * sizeof (QVector4D); 
+        GLbitfield trailFlags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT | GL_DYNAMIC_STORAGE_BIT;
+
+        if (trailBufferSize <= 0)
+        {
+            SIM_LOG (LM_CRITICAL, "SSBO FATAL: Calculated missile trajectory trail buffer size is invalid!");
+            return false;
+        }
+
+        ::glBufferStorage (GL_SHADER_STORAGE_BUFFER, trailBufferSize, nullptr, trailFlags);
+
+        m_persistentTrailPtr = reinterpret_cast<DataObjects::PathVertex*>(
+            ::glMapBufferRange (GL_SHADER_STORAGE_BUFFER, 0, trailBufferSize, mapFlags)
+        );
+
+        if (m_persistentTrailPtr == nullptr)
+        {
+            GLenum error = ::glGetError();
+
+            SIM_LOG (LM_CRITICAL, QString("SSBO ALLOCATION FAILURE: Missile Map range failed. Driver code: 0x%1")
+                    .arg (error, 0, 16)
+                   );
+
+            return false;
+        }
+
+        if (m_trajectorySsboId > 0)
+        {
+            ::glBindBufferBase (GL_SHADER_STORAGE_BUFFER, 1, m_trajectorySsboId);
+        }
+        else
+        {
+            SIM_LOG (LM_CRITICAL, "SSBO FATAL: m_trajectorySsboId is corrupted or empty right before binding pass!");
+            return false;
+        }
+
+        ::glBindBuffer (GL_SHADER_STORAGE_BUFFER, 0);
+
+        SIM_LOG (LM_INFO, QString ("Zero-Copy Persistent SSBO Initialized. Mapped %1 bytes to GPU slot 1.")
+                 .arg (trailBufferSize)
+                );
+
+        m_entityManager->setGpuTrailPointer (m_persistentTrailPtr);
+
+        SIM_LOG (LM_INFO, "Exit allocateSimulationSSBO()");
+
+        return true;
+    }
 
 
+    void MyGLWidget::renderSatellitePoints (const QMatrix4x4& mvpMatrix)
+    {
+        size_t entityCount = m_entityManager->getEntities().size();
 
+        if (entityCount == 0)
+        {
+            SIM_LOG (LM_DEBUG, "No entities detected");
+            return;
+        }
 
+        float currentGlobeRadius = ::Config::getInstance().DEFAULT_RADIUS;
+        float glDetectionRange   = m_entityManager->m_tracker->m_detectionRange - currentGlobeRadius;
 
+        if (this->setActiveShader ("Satellites"))
+        {
+            m_program->bind();
+            
+            // Pass your hardcoded uniform locations directly
+            m_program->setUniformValue (0, mvpMatrix);                                    // layout(location = 0)
+            m_program->setUniformValue (7, 1.0f, 0.0f, 1.0f, 1.0f);                       // layout(location = 7) Magenta
+            m_program->setUniformValue (6, m_entityManager->m_tracker->m_filterActive);   // layout(location = 6)
+            
+            if (m_entityManager->m_tracker->m_filterActive)
+            {
+                m_program->setUniformValue  (4, m_entityManager->m_tracker->m_filterAnchor); // layout(location = 4)
+                m_program->setUniformValue (5, glDetectionRange);                            // layout(location = 5)
+            }
 
+            ::glEnable (GL_PROGRAM_POINT_SIZE); 
+            ::glEnable (GL_BLEND); 
+            ::glBlendFunc (GL_SRC_ALPHA, GL_ONE); // Glow
+            ::glDepthFunc (GL_LEQUAL);
 
+            // Re-assert SSBO slot attachment
+            ::glBindBufferBase (GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
 
+            // =====================================================================
+            // MESA SPECIFICATION SAFETY FIX
+            // =====================================================================
+            // Bind the empty dummy state container. This completely satisfies 
+            // Mesa's Core Profile validation rules and prevents GL_INVALID_OPERATION!
+            ::glBindVertexArray (m_dummyVaoId);
 
+            // ZERO-COPY ACCELERATION DRAW CALL:
+            // No PCIe copies, no CPU synchronization stalls.
+            // The vertex shader reads positions directly out of the shared VRAM memory space.
+            ::glDrawArrays (GL_POINTS, 0, static_cast<GLsizei> (entityCount));
 
+            // Restore context state hygiene smoothly
+            ::glBindVertexArray (0);
+            ::glDisable (GL_BLEND);
+            m_program->release();
+        }
+    }
 
+    void MyGLWidget::renderMissileArcs (const QMatrix4x4& mvpMatrix)
+    {
+        // 1. Validate active data constraints
+        int activeMissiles = m_entityManager->getActiveMissileCount();
+        if (activeMissiles == 0) return;
 
+        // 2. Bind your pre-compiled SPIR-V missile line shader pipeline
+        if (this->setActiveShader ("MissilePaths"))
+        {
+            m_program->bind();
+            
+            // Pass uniforms directly to hardcoded location indices bypassing string hashes
+            m_program->setUniformValue (0, mvpMatrix); // Vertex location 0 (mvp matrix)
+            
+            // Fragment uniforms live in an independent pool - safely sets your color index
+            m_program->setUniformValue (0, 0.0f, 0.8f, 1.0f, 1.0f); // Fragment location 0: Electric Blue
 
+            // Configure blending properties for an energy glow trail appearance
+            ::glEnable(GL_BLEND);
+            ::glBlendFunc(GL_SRC_ALPHA, GL_ONE); 
 
+            // Bind the secondary trajectory buffer container to global index slot 1
+            ::glBindBufferBase (GL_SHADER_STORAGE_BUFFER, 1, m_trajectorySsboId);
 
+            // Render each missile's tracking path as an independent 64-vertex line strip curve
+            for (int i = 0; i < activeMissiles; ++i)
+            {
+                GLint firstVertexOffset = i * 64;
+                
+                // Safe global profile draw command pass
+                ::glDrawArrays (GL_LINE_STRIP, firstVertexOffset, 64);
+            }
 
+            // Restore default graphics states cleanly
+            ::glDisable (GL_BLEND);
+            m_program->release();
+        }
+    }
+
+} // namspace SimCore

@@ -19,8 +19,6 @@ endif()
 find_program (GLSLANG_VALIDATOR glslangValidator REQUIRED)
 
 
-
-
 ################## Find ACE (and TAO if we need it) ##################
 # ACE/TAO typically don't ship with CMake 'config' files. 
 # We manually find headers and libraries based on ACE_ROOT/TAO_ROOT.
@@ -46,8 +44,6 @@ endif()
 if (NOT ACE_LIBRARY) # OR NOT TAO_LIBRARY)
     message (FATAL_ERROR "ACE library not found. Please set ACE_ROOT environment variable.")
 endif()
-
-
 
 
 ################## Find QT6 and OpenGL ##################
@@ -101,6 +97,7 @@ set (SOURCES
     ${SOURCE_ROOT}/SimCore/EntityManager.cxx
     ${SOURCE_ROOT}/Network/CelesTrakSource.cxx
     ${SOURCE_ROOT}/Globe/FontManager.cxx
+    ${SOURCE_ROOT}/Objects/GuidedMissile.cxx
 )
 
 set (HEADERS
@@ -108,6 +105,7 @@ set (HEADERS
     "$ENV{SPG4_HEADERS}/Tle.h"
     ${GLAD_INCLUDE}/glad/gl.h
     ${HEADER_ROOT}/Tracking.hxx
+    ${HEADER_ROOT}/GuidedMissile.hxx
     ${HEADER_ROOT}/MainWindow.hxx
     ${HEADER_ROOT}/MyGLWidget.hxx
     ${HEADER_ROOT}/LegacyGLApp.hxx
@@ -120,6 +118,7 @@ set (HEADERS
     ${HEADER_ROOT}/BaseDataSource.hxx
     ${HEADER_ROOT}/FontManager.hxx
     ${HEADER_ROOT}/SystemCapabilities.hxx
+    ${HEADER_ROOT}/DataObjects.hxx
     "$ENV{XTRA_INCLUDE}/rl/Json.hxx"
     "$ENV{XTRA_INCLUDE}/rl/Configuration.hxx"
 )
@@ -230,51 +229,4 @@ target_include_directories (LegacyGLApp PRIVATE
 )
 
 
-
-
-
-######################## Copy shader files ###########################
-#set (SHADER_DEST_PATH "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders")
-
-#file (GLOB SHADER_FILES "${SOURCE_ROOT}/globe/shaders/*")
-
-#foreach (SHADER_PATH ${SHADER_FILES})
-#    get_filename_component (SHADER_NAME ${SHADER_PATH} NAME)
-
-#    set (DEST_PATH "${SHADER_DEST_PATH}/${SHADER_NAME}")
-
-#    add_custom_command (OUTPUT ${SHADER_DEST_PATH}
-#                        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SHADER_PATH} ${DEST_PATH}
-#                        DEPENDS ${SHADER_PATH}
-#                        COMMENT "Copying ${SHADER_NAME} if changed"
-#    )
-
-#    list (APPEND SHADER_DEST_FILES ${DEST_PATH})
-#endforeach()
-
 add_custom_target (copy_assets ALL DEPENDS ${SHADER_DEST_FILES})
-
-# add_custom_command (TARGET LegacyGLApp POST_BUILD
-#     COMMAND ${CMAKE_COMMAND} -E copy_directory
-#             "${SOURCE_ROOT}/globe/shaders"
-#             "$<TARGET_FILE_DIR:LegacyGLApp>/shaders"
-# )
-
-
-#add_custom_command (TARGET LegacyGLApp POST_BUILD
-#    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#            "${SOURCE_ROOT}/objects/shaders/Satellite.vert"
-#            "$<TARGET_FILE_DIR:LegacyGLApp>/shaders"
-#)
-
-#add_custom_command (TARGET LegacyGLApp POST_BUILD
-#    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#            "run"
-#            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/run"
-#)
-
-#add_custom_command (TARGET LegacyGLApp POST_BUILD
-#    COMMAND ${CMAKE_COMMAND} -E copy_directory
-#            "${SOURCE_ROOT}/../../textures"
-#            "$<TARGET_FILE_DIR:LegacyGLApp>/textures"
-#)

@@ -1,11 +1,9 @@
 #version 460 core
 
+layout (location = 0) in vec4 vColor; // Fed straight from vertex shader output location 0
 layout (location = 0) out vec4 fragColor;
-
-layout (location = 7) uniform vec3 satColor; // Pass this from the sidebar later!
 
 void main()
 {
-    // Basic solid color
-    fragColor = vec4 (satColor, 1.0);
+    fragColor = vColor;
 }

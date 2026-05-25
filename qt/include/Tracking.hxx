@@ -8,6 +8,37 @@
 
 namespace Objects
 {
+    struct VoxelKey
+    {
+        int x, y, z;
+
+        bool operator<(const VoxelKey& other) const
+        {
+            if (x != other.x) return x < other.x;
+            if (y != other.y) return y < other.y;
+            return z < other.z;
+        }
+    };
+
+    class SpatialHasher
+    {
+        public:
+            static float m_voxelSizeGL;
+
+            static VoxelKey HashPosition (const QVector3D& pos)
+            {
+                // Protect against accidental divide-by-zero if uninitialized
+                float size = (m_voxelSizeGL > 0.0f) ? m_voxelSizeGL : 0.0078f;
+
+                return VoxelKey
+                {
+                    static_cast<int> (std::floor (pos.x() / size)),
+                    static_cast<int> (std::floor (pos.y() / size)),
+                    static_cast<int> (std::floor (pos.z() / size))
+                };
+            }
+    };
+
     class Tracking
     {
         public:

@@ -49,6 +49,8 @@ class Config : public configuration::Configuration
         float RANGE_RING_DELTA;
         unsigned int DEFAULT_THREAD_SLEEP = 1000; // Fallback for bad configuration files
         unsigned int MAX_FPU_THREADS = 64;
+        int MAX_OBJECTS = 500000; //Fallback for bad configuration files
+        int MAX_MISSILES = 1000; //Fallback for bad configuration files
 
         struct ConfigErr
         {
@@ -108,6 +110,8 @@ class Config : public configuration::Configuration
         QVector3D getCityColor();
         QVector3D getRangeRingColor();
         float getRangeRingDelta();
+        int getMaxObjects();
+        int getMaxMissiles();
 
         //bool isCurrent();
         //time_t getLastReadTime();

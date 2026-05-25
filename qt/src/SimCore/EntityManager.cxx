@@ -28,8 +28,6 @@ namespace SimCore
     {
         if (info.startsWith ("FILE_READY:"))
         {
- //           std::cout << "using file reader task" << std::endl;
-
             // USE THE FILE READER TASK
             // This task opens the file path (info.mid(11)) and reads the lines
             auto* data = new FileTaskData { info.mid (11), group };
@@ -40,9 +38,6 @@ namespace SimCore
         }
         else
         {
-
- //           std::cout << "using parsing task" << std::endl;
-
             // USE THE PARSING TASK
             // This task treats 'info' as the raw TLE text block
             auto* data = new ParsingTaskData { info, group };
@@ -65,8 +60,6 @@ namespace SimCore
         // Split by any newline variation (\r\n, \n, \r)
         //QStringList lines = rawData.split('\n', Qt::SkipEmptyParts);
         QStringList lines = rawData.split (QRegularExpression ("(\r\n|\n|\r)"), Qt::SkipEmptyParts);
-
-//        std::cout << "Total Line: " << lines.size() << std::endl;
         
         std::vector<BaseEntity*> newSats;
         int parsedCount = 0;
@@ -77,8 +70,6 @@ namespace SimCore
             QString name = lines[i].trimmed();
             QString l1 = lines[i+1];
             QString l2 = lines[i+2];
-
-//            std::cout << "Name: " << name.toStdString() << ", L1: " << l1.toStdString() << ", L2: " << l2.toStdString() << std::endl;
 
             // Check if l1 starts with '1 ' and l2 starts with '2 '
             // This validates we haven't lost our place in the 3-line sequence
@@ -114,20 +105,12 @@ namespace SimCore
         {
             EntityManager::instance()->addBatch (std::move (newSats));
         }
-        else
-        {
-//            std::cout << "EntityManager::parsingTask: New EntityManager is null" << std::endl;
-        }
-
-//        SIM_LOG (LM_INFO, QString ("SUCCESS: Parsed %1 %2").arg (parsedCount).arg ("satellites."));
 
         return nullptr;
     }
 
     void EntityManager::addBatch (const std::vector<BaseEntity*>&& newEntities)
     {
-//        std::cout << "EntityManager::addBatch: Adding batch of " << newEntities.size() << " entities" << std::endl;
-
         if (newEntities.empty())
         {
         }
@@ -158,17 +141,15 @@ namespace SimCore
                     delete entity; // Already exists, discard the duplicate
                 }
             }
-        } // ACE_GUARD (ACE_Thread_Mutex, mon, m_vectorLock);
 
-//        std::cout << "EntityManager::addBatch complete" << std::endl;
+            m_totalActiveEntities = static_cast<int> (m_entities.size());
+        } // ACE_GUARD (ACE_Thread_Mutex, mon, m_vectorLock);
     }
 
     void* EntityManager::fileReaderTask (void* arg)
     {
         // 1. Capture and wrap in a smart pointer immediately for safety
         std::unique_ptr<FileTaskData> data (static_cast<FileTaskData*> (arg));
-
-//        std::cout << "EntityManager::fileReaderTask: Reading file " << data->path.toStdString() << std::endl;
 
         if (!data) return nullptr;
 
@@ -226,7 +207,6 @@ namespace SimCore
             // Simply acquiring the lock once here acts as a memory barrier
         }
 
-//        std::cout << "Leaving EntityManager::fileReaderTask\n\n\n\n" << std::endl;
         return nullptr; // data (unique_ptr) is deleted here automatically
     }
 
@@ -293,8 +273,6 @@ namespace SimCore
         {
             ACE_GUARD (ACE_Thread_Mutex, mon, EntityManager::m_vectorLock);
             
-//            std::cout << "ACE_GUARD lock" << std::endl;
-
             // Remove-Erase idiom: Fast and thread-safe inside the lock
             auto it = std::remove_if (m_entities.begin(), m_entities.end(), [&](BaseEntity* e)
             {
@@ -313,20 +291,14 @@ namespace SimCore
             m_entities.erase (it, m_entities.end());
         }
 
- //       std::cout << "ACE_GUARD released" << std::endl;
-
-  //      std::cout << "free memory" << std::endl;
-
         // Free memory
         for (auto* e : toDelete)
         {
             if (!e) continue;
- //           std::cout << "delete e" << std::endl;
             delete e; 
         }
 
- //        std::cout << "free completed" << std::endl;
-        
+        m_totalActiveEntities = static_cast<int> (m_entities.size());
 
         SIM_LOG (LM_INFO, QString ("Removed group %1. Current count: %2").arg (groupKey).arg (m_entities.size()));
     }
@@ -334,111 +306,114 @@ namespace SimCore
 
     int EntityManager::svc() 
     {
-        // 1. Initial startup sync boundary handshake
-    m_barrier->wait();
+        // Initial startup sync boundary handshake
+        m_barrier->wait();
 
-    // Secure a unique, bound-safe ID matching your active worker pool size
-    int localThreadId = m_threadIndexer.fetch_add(1) % m_numThreads;
-    ACE_thread_t nativeThreadHandle = ACE_OS::thr_self();
+        // Secure a unique, bound-safe ID matching your active worker pool size
+        int localThreadId = m_threadIndexer.fetch_add(1) % m_numThreads;
+        ACE_thread_t nativeThreadHandle = ACE_OS::thr_self();
 
-    size_t availableCores = m_hardwareCorePool.size();
+        size_t availableCores = m_hardwareCorePool.size();
 
-    // =========================================================================
-    // STEP 1: HETEROGENEOUS TOPOLOGY WORKLOAD PARTITIONING
-    // =========================================================================
-    if (m_selectedTier != SchedulingTier::StandardFallback && availableCores > 0)
-    {
-        try
+        // =========================================================================
+        // STEP 1: HETEROGENEOUS TOPOLOGY WORKLOAD PARTITIONING
+        // =========================================================================
+        if (m_selectedTier != SchedulingTier::StandardFallback && availableCores > 0)
         {
-            int targetCpuId = 0;
-            WorkloadType myWorkload = WorkloadType::SGP4_PROPAGATOR;
-
-            // Dynamically assign thread types based on your application lifecycle allocation
-            // Example: Split pool so higher index blocks handle trajectory predictions
-            if (localThreadId >= (m_numThreads / 2))
+            try
             {
-                myWorkload = WorkloadType::PATH_PREDICTOR;
-            }
+                int targetCpuId = 0;
+                WorkloadType myWorkload = WorkloadType::SGP4_PROPAGATOR;
 
-            std::vector<int> primaryPhysicalCores;
-            std::vector<int> hyperthreadedSiblingCores;
-
-            // Divide the unfiltered pool into independent hardware computing pools
-            for (size_t i = 0; i < availableCores; ++i)
-            {
-                if (m_hardwareCorePool.at (i).isHTSibling)
+                // Dynamically assign thread types based on your application lifecycle allocation
+                // Example: Split pool so higher index blocks handle trajectory predictions
+                if (localThreadId >= (m_numThreads / 2))
                 {
-                    hyperthreadedSiblingCores.push_back (m_hardwareCorePool.at (i).logicalId);
+                    myWorkload = WorkloadType::PATH_PREDICTOR;
                 }
+
+                std::vector<int> primaryPhysicalCores;
+                std::vector<int> hyperthreadedSiblingCores;
+
+                // Divide the unfiltered pool into independent hardware computing pools
+                for (size_t i = 0; i < availableCores; ++i)
+                {
+                    if (m_hardwareCorePool.at (i).isHTSibling)
+                    {
+                        hyperthreadedSiblingCores.push_back (m_hardwareCorePool.at (i).logicalId);
+                    }
+                    else
+                    {
+                        primaryPhysicalCores.push_back (m_hardwareCorePool.at (i).logicalId);
+                    }
+                }
+
+                // CORE ROUTING ENGINE
+                if (myWorkload == WorkloadType::SGP4_PROPAGATOR && !primaryPhysicalCores.empty())
+                {
+                    // SGP4 Threads: Pinned to physical cores, skipping Core 0 to protect graphics
+                    size_t poolOffset = (static_cast<size_t> (localThreadId) % (primaryPhysicalCores.size() - 1)) + 1;
+                    targetCpuId = primaryPhysicalCores.at (poolOffset);
+                } 
+                else if (myWorkload == WorkloadType::PATH_PREDICTOR && !hyperthreadedSiblingCores.empty())
+                {
+                    // Path Prediction: Maps to HT sibling units to share FPU execution blocks
+                    size_t poolOffset = (static_cast<size_t> (localThreadId) % (hyperthreadedSiblingCores.size() - 1)) + 1;
+                    targetCpuId = hyperthreadedSiblingCores.at (poolOffset);
+                } 
                 else
                 {
-                    primaryPhysicalCores.push_back (m_hardwareCorePool.at (i).logicalId);
-                }
-            }
-
-            // CORE ROUTING ENGINE
-            if (myWorkload == WorkloadType::SGP4_PROPAGATOR && !primaryPhysicalCores.empty())
-            {
-                // SGP4 Threads: Pinned to physical cores, skipping Core 0 to protect graphics
-                size_t poolOffset = (static_cast<size_t> (localThreadId) % (primaryPhysicalCores.size() - 1)) + 1;
-                targetCpuId = primaryPhysicalCores.at (poolOffset);
-            } 
-            else if (myWorkload == WorkloadType::PATH_PREDICTOR && !hyperthreadedSiblingCores.empty())
-            {
-                // Path Prediction: Maps to HT sibling units to share FPU execution blocks
-                size_t poolOffset = static_cast<size_t> (localThreadId) % hyperthreadedSiblingCores.size();
-                targetCpuId = hyperthreadedSiblingCores.at (poolOffset);
-            } 
-            else {
-                // Fallback to basic linear stride if HT is completely disabled in system BIOS
-                targetCpuId = m_hardwareCorePool.at(static_cast<size_t>(localThreadId) % availableCores).logicalId;
-            }
-
-            cpu_set_t cpuset;
-            CPU_ZERO (&cpuset);
-            CPU_SET (targetCpuId, &cpuset);
-            ::pthread_setaffinity_np (nativeThreadHandle, sizeof (cpu_set_t), &cpuset);
-
-            // =========================================================================
-            // STEP 2: REAL-TIME ESCALATION & SCHEDULER TUNING
-            // =========================================================================
-            if (m_selectedTier == SchedulingTier::RealTimeAndAffinity)
-            {
-                struct sched_param param;
-                
-                // MISSILE COMMAND PRIORITY HIERARCHY:
-                // Intercept path calculations take precedence over background satellite rendering
-                if (myWorkload == WorkloadType::PATH_PREDICTOR)
-                {
-                    param.sched_priority = 35; // Higher real-time tier
-                }
-                else
-                {
-                    param.sched_priority = 20; // Standard background real-time tier
+                    // Fallback to basic linear stride if HT is completely disabled in system BIOS
+                    targetCpuId = m_hardwareCorePool.at (static_cast<size_t>(localThreadId) % availableCores).logicalId;
                 }
 
-                int rtStatus = ::pthread_setschedparam (nativeThreadHandle, SCHED_FIFO, &param);
-                if (rtStatus != 0)
+                cpu_set_t cpuset;
+                CPU_ZERO (&cpuset);
+                CPU_SET (targetCpuId, &cpuset);
+                ::pthread_setaffinity_np (nativeThreadHandle, sizeof (cpu_set_t), &cpuset);
+
+                // =========================================================================
+                // STEP 2: REAL-TIME ESCALATION & SCHEDULER TUNING
+                // =========================================================================
+                if (m_selectedTier == SchedulingTier::RealTimeAndAffinity)
                 {
-                    // System-level block caught: drop back down to safe time-sharing niceness
+                    struct sched_param param;
+                    
+                    // MISSILE COMMAND PRIORITY HIERARCHY:
+                    // Intercept path calculations take precedence over background satellite rendering
+                    if (myWorkload == WorkloadType::PATH_PREDICTOR)
+                    {
+                        param.sched_priority = 35; // Higher real-time tier
+                    }
+                    else
+                    {
+                        param.sched_priority = 20; // Standard background real-time tier
+                    }
+
+                    int rtStatus = ::pthread_setschedparam (nativeThreadHandle, SCHED_FIFO, &param);
+
+                    if (rtStatus != 0)
+                    {
+                        // System-level block caught: drop back down to safe time-sharing niceness
 #if defined (__linux__)
                         ::setpriority (PRIO_PROCESS, 0, 5);
 #endif
-                }
-            } 
-            else {
-                // Tier 2 Fallback: Apply relative niceness under SCHED_OTHER
+                    }
+                } 
+                else
+                {
+                    // Tier 2 Fallback: Apply relative niceness under SCHED_OTHER
 #if defined (__linux__)
                     int targetNice = (myWorkload == WorkloadType::PATH_PREDICTOR) ? 2 : 6;
                     ::setpriority (PRIO_PROCESS, 0, targetNice);
 #endif
+                }
+            } 
+            catch (const std::out_of_range& e)
+            {
+                SIM_LOG (LM_ERROR, QString ("Core allocation exception on Thread %1.").arg (localThreadId));
             }
-        } 
-        catch (const std::out_of_range& e)
-        {
-            SIM_LOG (LM_ERROR, QString ("Core allocation exception on Thread %1.").arg (localThreadId));
         }
-    }
 
         // =========================================================================
         // 2. DATA PROCESSING PIPELINE
@@ -450,27 +425,81 @@ namespace SimCore
             qint64 msecs = std::chrono::duration_cast<std::chrono::milliseconds> (duration).count();
 
             SIM_LOG (LM_DEBUG, QString ("Aquire lock %1").arg (localThreadId));
+
             // Use tryacquire() to prevent the "Mutex Storm" from blocking the GUI
             if (m_vectorLock.tryacquire() == 0)
             {
                 size_t currentSize = m_entities.size();
+
+                size_t satCount     = m_entities.size();
+                size_t missileCount = m_missiles.size();
+
+                // Establish strict architectural division bounds based on your thread type assignment
+                int halfPool = m_numThreads / 2; // Split threshold (e.g., index 16)
                 
-                if (currentSize > 0)
+                // =====================================================================
+                // WORKLOAD DIVISION 1: SGP4 SATELLITE PROPAGATION (PHYSICAL CORES)
+                // =====================================================================
+                // Only threads 1 to 15 handle raw satellite orbit computations
+                if (localThreadId < halfPool && satCount > 0 && this->m_persistentBufferPtr != nullptr)
                 {
                     SIM_LOG (LM_DEBUG, QString ("Loop updatePhysics %1").arg (localThreadId));
 
-                    for (size_t i = (size_t)localThreadId; i < m_entities.size(); i += availableCores)
+                    for (size_t i = static_cast<size_t>(localThreadId); i < satCount; i += static_cast<size_t>(halfPool))
                     {
                         BaseEntity* entity = m_entities[i];
 
                         if (!m_entities.empty() && entity)
                         {
                             m_entities[i]->updatePhysics (msecs, Globe::m_liveOffset);
+
+                            // ZERO-COPY INJECTION: Stream calculations straight to the GPU pointer.
+                            // Because each thread manages separate indices, they write safely with ZERO lock contention.
+                            QVector3D realPosition = entity->getPosition();
+                            
+                            m_persistentBufferPtr[i].position = QVector4D (realPosition.x(),
+                                                                           realPosition.y(),
+                                                                           realPosition.z(),
+                                                                           1.0f
+                                                                          );
+                            this->m_persistentBufferPtr[i].velocity.setW (1.0f); // Status flag: Active Satellite
+                        }
+                    }
+                }
+
+                // =====================================================================
+                // WORKLOAD DIVISION 2: MISSILE ARC TRAJECTORIES (HYPERTHREADED SIBLINGS)
+                // =====================================================================
+                // Only threads 16 to 31 handle guided weapon paths and missile trail geometry
+                if (localThreadId >= halfPool && missileCount > 0 && this->m_persistentTrailPtr != nullptr)
+                {
+                    // Calculate a localized, zero-based indexing offset for the missile loops (0 to 15)
+                    size_t missileThreadOffset = static_cast<size_t> (localThreadId - halfPool);
+
+                    // Stride explicitly by the width of the path predictor pool (top half of pool)
+                    for (size_t m = missileThreadOffset; m < missileCount; m += static_cast<size_t>(halfPool))
+                    {
+                        if (m < m_missiles.size())
+                        {
+                            Objects::GuidedMissile* missile = m_missiles[m];
+                            
+                            if (missile && missile->isActive())
+                            {
+                                // 1. Advance linear trajectory curves using CPU mathematical tracking
+                                missile->updatePhysics (msecs, Globe::m_liveOffset);
+                                
+                                // 2. ZERO-COPY TRAIL STREAMING: Push points directly to VRAM binding slot 1
+                                if (this->m_persistentTrailPtr != nullptr)
+                                {
+                                    missile->updateTrailGeometry (this->m_persistentTrailPtr);
+                                }
+                            }
                         }
                     }
                 }
 
                 SIM_LOG (LM_DEBUG, QString ("Release lock %1").arg (localThreadId));
+
                 m_vectorLock.release();
             }
             else
@@ -539,4 +568,53 @@ namespace SimCore
 
         SIM_LOG (LM_INFO, QString ("Simulation Shutdown Finalized Successfully. All threads reaped."));
     }
-}
+
+    void EntityManager::handleSatelliteExplosion (size_t targetIndex, const QVector3D& impactPos)
+    {
+        // 1. Convert the parent satellite to a piece of kinetic debris instantly
+        m_persistentBufferPtr[targetIndex].metadata.setW (DataObjects::TYPE_KINETIC_DEBRIS);
+        m_persistentBufferPtr[targetIndex].metadata.setX (5.0f); // 5 seconds of lifespan before fading
+        
+        // 2. Spawn surrounding shrapnel fragments using adjacent empty array slots
+        int fragmentsSpawned = 0;
+        size_t poolSize = m_entities.size(); // Sized up to 50,000 max capacity
+
+        for (size_t i = 0; i < poolSize && fragmentsSpawned < 25; ++i)
+        {
+            // Locate an inactive or dead memory slot inside the persistent array
+            if (m_persistentBufferPtr[i].metadata.w() == DataObjects::TYPE_DEAD_SLOT)
+            {
+                // Initialize position at the exact point of impact
+                m_persistentBufferPtr[i].position = QVector4D (impactPos.x(), impactPos.y(), impactPos.z(), 1.0f);
+                
+                // Generate a random outward kinetic blast velocity vector
+                QVector3D shrapnelVel = CalculateExplosionVector(); 
+                m_persistentBufferPtr[i].velocity = QVector4D (shrapnelVel.x(), shrapnelVel.y(), shrapnelVel.z(), 1.0f);
+                
+                // Flag it as kinetic debris so the GPU Compute shader takes over next frame
+                m_persistentBufferPtr[i].metadata.setX (3.0f + (rand() % 100 / 50.0f)); // Randomized lifespan
+                m_persistentBufferPtr[i].metadata.setW (DataObjects::TYPE_KINETIC_DEBRIS);
+                
+                fragmentsSpawned++;
+            }
+        }
+    }
+
+    QVector3D EntityManager::CalculateExplosionVector()
+    {
+        // 1. Generate two randomized angular values spanning a spherical field
+        float theta = (static_cast<float> (rand()) / static_cast<float> (RAND_MAX)) * 2.0f * M_PI; // 0 to 2PI
+        float phi   = acos(2.0f * (static_cast<float>(rand()) / static_cast<float> (RAND_MAX)) - 1.0f); // 0 to PI
+
+        // 2. Generate a randomized kinetic velocity expansion speed scalar
+        // Tweak 0.01f and 0.03f to make the debris clouds expand faster or slower over your globe
+        float speed = 0.01f + (static_cast<float> (rand()) / static_cast<float> (RAND_MAX)) * 0.02f;
+
+        // 3. Convert the spherical angular positions into standard 3D Cartesian coordinates
+        float vx = sin (phi) * cos (theta) * speed;
+        float vy = sin (phi) * sin (theta) * speed;
+        float vz = cos (phi) * speed;
+
+        return QVector3D (vx, vy, vz);
+    }
+} // namespace SimCore

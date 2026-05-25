@@ -12,29 +12,22 @@ namespace Space
         m_propagator = std::make_unique<libsgp4::SGP4> (tle);
         m_group = group;
         m_noradId = QString::fromStdString (tle1.substr (2, 5));
-
-//        std::cout << "Created new satellite " << m_noradId.toStdString() << std::endl;
     }
 
     void Satellite::updatePhysics (qint64 msecs, float liveOffset)
     {
         if (!m_propagator)
         {
-//            std::cout << "No propagator" << std::endl;
-
 //            SIM_LOG (LM_CRITICAL, "No propagator");
 
             return;
         }
-
 
         //gravconsttype whichconst = wgs72; // Ensure this matches your TLE initialization
         //double tkmper, mu, radiusearthkm, vkkmper, j2, j3, j4, j3oj2;
 
         //// This populates the exact parameters the library is using
         //getgravconst(whichconst, tkmper, mu, radiusearthkm, vkkmper, j2, j3, j4, j3oj2);
-
-
 
         // Convert msecs to SGP4 DateTime
         QDateTime qtTime = QDateTime::fromMSecsSinceEpoch (msecs, Qt::UTC);

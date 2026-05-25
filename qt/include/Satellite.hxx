@@ -47,7 +47,7 @@ namespace Space
 
             static void resetTleErrors()
             {
-                ACE_GUARD(ACE_Thread_Mutex, ace_mon, lock_);
+                ACE_GUARD (ACE_Thread_Mutex, ace_mon, lock_);
                 tleErrors = 0;
             }
              

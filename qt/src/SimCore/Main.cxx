@@ -13,7 +13,7 @@ int ACE_TMAIN (int argc, ACE_TCHAR *argv[])
 {
     // Set ACE to show: Time | Severity | Thread ID | Message
     ACE_Log_Msg::instance()->open (argv[0], ACE_Log_Msg::STDERR); // | ACE_Log_Msg::LOGGER);
-    ACE_Log_Msg::instance()->priority_mask (LM_INFO | LM_ERROR | LM_CRITICAL, ACE_Log_Msg::PROCESS);
+    ACE_Log_Msg::instance()->priority_mask (/*LM_DEBUG | */ LM_INFO | LM_ERROR | LM_CRITICAL, ACE_Log_Msg::PROCESS);
 
     ACE_DEBUG ((LM_INFO, ACE_TEXT ("[%T][%M][TID:%t] %s\n"), "Starting up"));
 

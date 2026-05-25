@@ -43,7 +43,13 @@
 
 using namespace libsgp4;
 
-static const float ZOOM_CLAMP = 0.15f;
+static const float ZOOM_CLAMP = 0.165f;
+static const float MAXPULLBACKLIMIT = 4.0f;
+
+// APPLY A CONSTANT DYNAMIC PROGRESSION MULTIPLIER
+// Instead of using arbitrary hardware divisions, we use a single clear, 
+// adjustable scalar variable to map mouse ticks smoothly to zoom intervals.
+static const float ZOOMSPEEDFACTOR = 0.0003f;
 
 enum TextureIDs
 {
@@ -75,7 +81,15 @@ namespace SimCore
             GLuint fontTexture = 0;
             QOpenGLVertexArrayObject m_vao;
             QOpenGLShaderProgram* m_program;
-            QOpenGLBuffer m_vbo;
+            QOpenGLBuffer m_vbo; // The globe
+
+            GLuint m_dummyVaoId = 0; // Modern spec compatibility state container
+
+            GLuint m_ssboHardwareId = 0;
+            DataObjects::GpuEntityData* m_persistentBufferPtr = nullptr;
+
+            GLuint m_trajectorySsboId = 0;
+            DataObjects::PathVertex* m_persistentTrailPtr = nullptr; // Track inside your structures
 
             // TLE objects
             std::unique_ptr<SGP4> m_issPropagator;
@@ -118,6 +132,9 @@ namespace SimCore
 
             void initCapitals (QString filename);
             QVector3D latLonToXYZ (float lat, float lon, float radius);
+            bool allocateSimulationSSBO (int totalEntities);
+            void renderSatellitePoints (const QMatrix4x4& mvpMatrix);
+            void renderMissileArcs (const QMatrix4x4& mvpMatrix);
 
         public:
             // This constructor is required to use the widget in a layout

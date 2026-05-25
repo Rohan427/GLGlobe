@@ -28,6 +28,7 @@
 #include <ace/Guard_T.h>
 #include <ace/Log_Msg.h>
 #include <atomic>
+#include "DataObjects.hxx"
 
 //#include "MainWindow.hxx"
 

@@ -10,7 +10,6 @@
 #include <QDateTime>
 #include <QImageReader>
 #include <ace/Log_Msg.h>
-#include "MainWindow.hxx"
 
 // Forward declare the proxy function inside the namespace
 namespace SimCore

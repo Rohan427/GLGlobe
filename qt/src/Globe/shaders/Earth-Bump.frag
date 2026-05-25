@@ -29,7 +29,7 @@ void main()
     float hU = texture (bumpSampler, vTex + vec2 (0.0, texelSize)).r;
 
     // Perturb the normal
-    float strength = 10.0; // Higher = flatter mountains
+    float strength = 5.0; // Higher = flatter mountains
     vec3 bump = normalize (vec3 (hL - hR, hD - hU, 1.0 / strength));
     
     // Reconstruct a new normal based on the sphere's surface + the bump

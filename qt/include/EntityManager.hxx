@@ -3,8 +3,8 @@
 #ifndef ENTITYMANAGER_HXX
 #define ENTITYMANAGER_HXX
 
-// SimCore/EntityManager.hxx
 #include "BaseEntity.hxx"
+#include "GuidedMissile.hxx"
 #include "Tracking.hxx"
 #include <ace/Task.h>
 #include <ace/Barrier.h>
@@ -33,10 +33,18 @@ namespace SimCore
 
             std::unordered_set<QString> m_activeIds; // Fast lookup for duplicates
 
+            // The persistent container array tracking live interceptor entities
+            std::vector<Objects::GuidedMissile*> m_missiles; 
+
         public:
             static ACE_Thread_Mutex m_vectorLock; // Protects the vector itself
             static bool m_updatingEntities;
             Objects::Tracking* m_tracker;
+            int m_totalActiveEntities;
+
+            // Persistent CPU-accessible pointer mapped directly to VRAM
+            DataObjects::GpuEntityData* m_persistentBufferPtr = nullptr;
+            DataObjects::PathVertex* m_persistentTrailPtr = nullptr; // Track inside your structures
 
             /************* Functions ******************/
 
@@ -78,10 +86,28 @@ namespace SimCore
 
             void onDataReceived (const QString& data);
 
+            void setGpuBufferPointer (DataObjects::GpuEntityData* ptr)
+            {
+                this->m_persistentBufferPtr = ptr;
+            }
+
+            void setGpuTrailPointer (DataObjects::PathVertex* ptr)
+            {
+                this->m_persistentTrailPtr = ptr;
+            }
+
+            // Returns the exact size of the active guided weapons array
+            int getActiveMissileCount() const
+            {
+                return static_cast<int> (this->m_missiles.size());
+            }
+
             // Static helper for the parsing thread
             static void* parsingTask (void* arg);
             void addBatch (const std::vector<BaseEntity*>&& newEntities);
             void removeByGroup (const QString& groupKey);
+            void handleSatelliteExplosion (size_t targetIndex, const QVector3D& impactPos);
+            QVector3D CalculateExplosionVector();
 
         public slots: // Or just public:
             void processTleData (const QString& data, const QString& group);
