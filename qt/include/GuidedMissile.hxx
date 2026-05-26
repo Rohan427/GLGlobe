@@ -23,29 +23,42 @@ namespace Objects
 
         public:
             GuidedMissile (int id, size_t ssboIndex, const QVector3D& origin, const QVector3D& target)
-                            : m_id(id), m_ssboIndex (ssboIndex),
+                            : m_id (id), m_ssboIndex (ssboIndex),
                               m_currentPos (origin),
                               m_targetPos (target),
-                              m_active (true) 
+                              m_active (true),
+                              m_trailTimer (0.0f)
             {
-                m_velocity = (target - origin).normalized() * 0.05f; // Initial speed scalar
-                m_mode = TargetMode::ANTI_SATELLITE_STRIKE;          // Default tactical assignment
+                QVector3D travelDirection = (target - origin).normalized();
+
+                // PRODUCTION REPAIR: Fetch your speed limit parameter straight from memory
+                // This scales your Mach 27 step accurately across your 1.0 radius globe
+                float glUnitsPerSecond = ::Config::getInstance().MAX_ICBM_SPD;
+
+                // Apply your configured radius multiplier to protect geometry constraints
+                float scaledSpeed = glUnitsPerSecond * ::Config::getInstance().DEFAULT_RADIUS;
+
+                // Store the baseline step vector
+                m_velocity = travelDirection * scaledSpeed;
             }
 
             virtual ~GuidedMissile() = default;
 
-            // --- Polymorphic BaseEntity Overrides ---
-            virtual void updatePhysics (qint64 msecs, float liveOffset) override
+            // OVERLOAD IMPLEMENTATION: Processes clean, frame-rate independent ballistics
+            virtual void updatePhysics (float deltaTimeSec) override
             {
                 if (!m_active) return;
 
-                // 1. Advance position along the linear velocity vector
-                m_currentPos += m_velocity;
+                // Advance your position cleanly relative to the actual ticking clock speed
+                m_currentPos += (m_velocity * deltaTimeSec);
+                
+                // Stretches your trail history by accumulating fractional time increments
+                m_trailTimer += deltaTimeSec;
 
-                // Check if the missile has reached its destination target coordinates
-                if (m_currentPos.distanceToPoint (m_targetPos) < 0.01f)
+                // Clamping threshold optimized for a 1.0 radius globe
+                if (m_currentPos.distanceToPoint (m_targetPos) < 0.0005f)
                 {
-                    m_active = false; // Trigger destination impact termination
+                    m_active = false; 
                 }
             }
 
@@ -55,7 +68,7 @@ namespace Objects
             }
             virtual QString getLabel() const override
             {
-                return QString ("MSL-%1").arg(m_id);
+                return QString ("MSL-%1").arg (m_id);
             }
 
             // --- Missile Specific Command Interfaces ---
@@ -78,9 +91,14 @@ namespace Objects
             {
                 m_mode = mode;
             }
+
+            size_t getSsboIndex() const
+            {
+                return this->m_ssboIndex;
+            }
             
             // Updates the 64 trailing line coordinates inside your mapped VRAM buffer
-            void updateTrailGeometry(DataObjects::PathVertex* trailBufferHead);
+            void updateTrailGeometry (DataObjects::PathVertex* trailBufferHead, float deltaTimeSec);
 
         private:
             int m_id;
@@ -90,6 +108,7 @@ namespace Objects
             QVector3D m_velocity;
             bool m_active;
             TargetMode m_mode;
+            float m_trailTimer; // Tracks fractional time chunks
     };
 } // namespace Objects
 

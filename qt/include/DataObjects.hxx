@@ -11,13 +11,18 @@
 
 namespace DataObjects
 {
-    constexpr float TYPE_DEAD_SLOT       = 0.0f; // Empty buffer array slot, skip processing
-    constexpr float TYPE_SGP4_SATELLITE  = 1.0f; // Managed by CPU worker threads via SGP4
-    constexpr float TYPE_KINETIC_DEBRIS  = 2.0f; // Managed by GPU Compute Shader (Falling physics)
+    constexpr float TYPE_DEAD_SLOT       = 0.0f;  // Empty buffer array slot, skip processing
+    constexpr float TYPE_SGP4_SATELLITE  = 1.0f;  // Managed by CPU worker threads via SGP4
+    constexpr float TYPE_KINETIC_DEBRIS  = 2.0f;  // Managed by GPU Compute Shader (Falling physics)
     constexpr float TYPE_TACTICAL_MISSILE = 3.0f; // Managed by high-priority CPU/GPU path prediction
-    constexpr float TYPE_INCOMING_THREAT = 4.0f; // Ballistic trajectory math
+    constexpr float TYPE_INCOMING_THREAT = 4.0f;  // Ballistic trajectory math
 
-    struct PathVertex
+    // Unified State Identifiers mapped straight to metadata.z
+    constexpr float STATE_LAUNCH_THRUST = 10.0f; // Accelerating along arc
+    constexpr float STATE_BALLISTIC     = 20.0f; // Pure un-thrusted gravitational re-entry
+    constexpr float STATE_TERMINATED    = 30.0f; // Impact achieved / Dead slot
+
+    struct alignas (16) PathVertex 
     {
         QVector4D position; // xyz = Coordinate on the trajectory curve | w = Alpha/Fade factor
     };
@@ -27,6 +32,7 @@ namespace DataObjects
         QVector4D position;  // xyz = Coordinate Vector [X,Y,Z]   | w = Entity Type Scale (1.0 = Globe)
         QVector4D velocity;  // xyz = Vector Direction [VX,VY,VZ] | w = Status Flag (1.0 = Active Sat, 0.0 = Debris)
         QVector4D metadata;  // x = Lifespan Decay Timer          | y = Mass Parameter   | z/w = Reserved Tactical Flags
+        QVector4D padding;   // 16 bytes -> CRITICAL INTERLOCK ALIGNMENT FIX
     };
 } // namespace DataObjects
 

@@ -43,8 +43,12 @@ namespace SimCore
 
         public:
             virtual ~BaseEntity() = default;
-            // Every object must be able to update its own 3D position
-            virtual void updatePhysics (qint64 msecs, float liveOffset) = 0;
+
+            // Standard absolute time signature used strictly by your SGP4 Satellites
+            virtual void updatePhysics(qint64 msecs, float liveOffset) {}
+
+            // NEW OVERLOAD: Time-delta signature used strictly by your tactical Missiles
+            virtual void updatePhysics (float deltaTimeSec) {}
             virtual QVector3D getPosition() const = 0;
             virtual QString getLabel() const = 0;
     };

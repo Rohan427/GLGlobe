@@ -61,7 +61,7 @@ namespace SimCore
         Globe::globeSectors = ::Config::getInstance().DEFAULT_SECTORS;
         Globe::globeStacks = ::Config::getInstance().DEFAULT_STACKS;
 
-        // Setup constant Earth radius using in SGP4 internat value
+        // Setup constant Earth radius using in SGP4 internal value
         Globe::earthRadiusKm = libsgp4::kXKMPER;
         Globe::glScaleFactor = Globe::globeRadius / static_cast<float> (Globe::earthRadiusKm);
 
@@ -88,6 +88,8 @@ namespace SimCore
 
             std::exit (-1); 
         }
+
+        m_entityManager->initializeSatelliteBufferSlots();
 
         ::glGenVertexArrays (1, &m_dummyVaoId);
         ::glBindVertexArray (m_dummyVaoId);
@@ -247,14 +249,42 @@ namespace SimCore
             SIM_LOG (LM_INFO, "Network-to-Simulation bridge connected.");
         }
 
-        // Activate the FPU threads
+        // Activate the simulation threads
         m_entityManager->startSimulation (::Config::getInstance().MAX_FPU_THREADS);
+
+        this->setFocusPolicy (Qt::StrongFocus);
     }
+
+
+
 
 
     void MyGLWidget::paintGL() 
     {
         SIM_LOG (LM_DEBUG, "paintGL");
+
+        // CRITICAL TIMING CLOCK: INITIALIZE THE PERSISTENT MASTER CLOCK CONTAINER ON THE FIRST FRAME
+        if (!m_frameTimer.isValid())
+        {
+            m_frameTimer.start();
+        }
+
+        // 2. EXTRACT RAW ELAPSED NANOSECONDS SINCE THE LAST FRAME DREW
+        qint64 elapsedNano = m_frameTimer.nsecsElapsed();
+        m_frameTimer.restart(); // Reset the clock instantly for the next pass
+
+        // 3. CONVERT TO FRACTIONAL FLOATING-POINT SECONDS
+        // At 3,000 FPS, this evaluates to exactly ~0.0003333f seconds.
+        // At a stable 60 FPS, this evaluates to exactly ~0.0166667f seconds.
+        this->m_masterDeltaTimeSec = static_cast<float> (elapsedNano) / 1000000000.0f;
+
+        // 4. THE APPLICATION UNPAUSE FIREWALL
+        // If you drag the window or the OS pauses execution, the delta will spike.
+        // We clamp the maximum time step to 100ms to prevent objects from teleporting.
+        if (m_masterDeltaTimeSec > 0.1f)
+        {
+            m_masterDeltaTimeSec = 0.001f; // Standard fallback safe interval step
+        }
 
         /*************** Setup and draw the globe *****************/
         glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -270,7 +300,7 @@ namespace SimCore
         QMatrix4x4 projection;
         projection.perspective (::Config::getInstance().DEFAULT_PERSPECTIVE, aspect, 0.1f, 100.0f);
 
-        // VCompute the dynamic pull-back multiplier relative to the active radius configuration
+        // Compute the dynamic pull-back multiplier relative to the active radius configuration
         // This maintains the exact same proportional visual distance whether radius is 0.5, 1.0, or 1.5.
         float dynamicRadiusScalar = ::Config::getInstance().DEFAULT_RADIUS * 6.66667f;
 
@@ -363,6 +393,7 @@ namespace SimCore
         QVector3D worldFilterCenter = rotatedCenter4.toVector3D();
 
         SIM_LOG (LM_DEBUG, "paintGL test if sensors are enabled");
+
         // For range rings
         if (m_entityManager->m_tracker->m_filterActive)
         {
@@ -452,6 +483,12 @@ namespace SimCore
         SIM_LOG (LM_DEBUG, "paintGL Begin satellite processing");
 
         renderSatellitePoints (mvp);
+
+        // =============================================================================
+        // NEW TEST CORE MILESTONE: DRAW ACTIVE BALLISTIC TRAJECTORIES
+        // =============================================================================
+        // This safely invokes your new pre-compiled MissilePaths SPIR-V shader pair
+        renderMissileArcs (mvp);
 
         // FPS Logic
         static int frames = 0;
@@ -645,9 +682,10 @@ namespace SimCore
                     m_entityManager->m_tracker->m_filterAnchor = Globe::m_selectedCity->position;
                     m_entityManager->m_tracker->m_filterActive = true;
                     SIM_LOG (LM_INFO, "Sensor filter placed at: " + Globe::m_selectedCity->name);
-                    SIM_LOG (LM_INFO, QString ("Location:\n x %1,\n y %2,\n z %3\n").arg (Globe::m_selectedCity->position.x())
-                                                                                    .arg (Globe::m_selectedCity->position.y())
-                                                                                    .arg (Globe::m_selectedCity->position.z())
+                    SIM_LOG (LM_INFO, QString ("Location:\n x %1,\n y %2,\n z %3\n")
+                             .arg (Globe::m_selectedCity->position.x())
+                             .arg (Globe::m_selectedCity->position.y())
+                             .arg (Globe::m_selectedCity->position.z())
                             );
                 }
             }
@@ -666,6 +704,41 @@ namespace SimCore
         else if (event->key() == Qt::Key_Escape)
         {
             close();
+        }
+        else if (event->key() == Qt::Key_I)
+        {
+            // 1. Fetch your active city/filter anchor point target vector
+            QVector3D targetLocation = m_entityManager->m_tracker->m_filterAnchor;
+
+            // If no filter anchor is currently active, default target to the North Pole
+            if (!m_entityManager->m_tracker->m_filterActive) {
+                targetLocation = QVector3D (0.0f, 1.0f, 0.0f);
+            }
+
+            /// =========================================================================
+            // VERIFIED SPHERICAL LAUNCH SCATTER PIPELINE
+            // =========================================================================
+            // Establish the baseline high-altitude threat ceiling in deep space (2.5x planet radius)
+            float launchAltitude = Globe::globeRadius * 2.0f;
+            QVector3D launchOrigin = targetLocation.normalized() * launchAltitude;
+
+            // Fetch a thread-safe random unit vector using your centralized Utility class
+            QVector3D scatterOffset = Utility::randomSphericalVector();
+            
+            // Scale the scatter radius width so threats span a broad tactical grid cone
+            float scatterRadius = Globe::globeRadius * 0.75f;
+            
+            // Apply the directional drift math to randomize the starting launch origin
+            launchOrigin += (scatterOffset * scatterRadius);
+
+            // 2. INJECT THE RANDOM COORDINATES INTO THE GPU DRIVEN PIPELINE
+            // We pass the unique launch position and the city target vector straight down
+            m_entityManager->injectGpuThreat (launchOrigin, targetLocation);            
+        }
+        else
+        {
+            // Pass unhandled inputs to the standard QOpenGLWidget base handler
+            QOpenGLWidget::keyPressEvent (event);
         }
 
         updateStatus();
@@ -1351,7 +1424,7 @@ namespace SimCore
     }
 
 
-    void MyGLWidget::renderSatellitePoints (const QMatrix4x4& mvpMatrix)
+    void MyGLWidget::renderSatellitePoints_legacy (const QMatrix4x4& mvpMatrix)
     {
         size_t entityCount = m_entityManager->getEntities().size();
 
@@ -1406,40 +1479,131 @@ namespace SimCore
         }
     }
 
+    void MyGLWidget::renderSatellitePoints (const QMatrix4x4& mvpMatrix)
+    {
+        // Fetch total capacity allocation matching your MAX_OBJECTS config setting
+        int totalSimulationCap = ::Config::getInstance().MAX_OBJECTS;
+
+        // =========================================================================
+        // STEP 1: DISPATCH GPU COMPUTE PHYSICS
+        // =========================================================================
+        if (this->setActiveShader("PhysicsEngine"))
+        {
+            int totalSimulationCap = ::Config::getInstance().MAX_OBJECTS;
+
+            if (this->setActiveShader ("PhysicsEngine"))
+            {
+                m_program->bind();
+                
+                // 1. Compute your real-world Earth core gravity constant relative to your scale factor
+                // Real earth standard gravitational parameter (μ) = 398600.4418 km^3/s^2
+                double earthMu = 398600.4418;
+                
+                // Convert to your current GL spatial universe dimensions
+                // Accel changes by scaleFactor cubed because volume elements scale by r^3
+                float glGravityConstant = static_cast<float>(earthMu) * std::pow (Globe::glScaleFactor, 3.0f);
+
+                // 2. Inject parameters safely to your hardcoded locations
+                m_program->setUniformValue (0, this->m_masterDeltaTimeSec);   // location 0
+                m_program->setUniformValue (1, Globe::globeRadius);     // location 1
+                m_program->setUniformValue (2, glGravityConstant);      // location 2
+
+                ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
+
+                int workGroupsX = (totalSimulationCap + 63) / 64;
+                ::glDispatchCompute (workGroupsX, 1, 1);
+
+                ::glMemoryBarrier (GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
+                m_program->release();
+            }
+        }
+
+        // =========================================================================
+        // STEP 2: DRAW CALLS (SATELLITES & MISSILE POINT TIP INJECTIONS)
+        // =========================================================================
+        if (this->setActiveShader ("Satellites"))
+        {
+            m_program->bind();
+            m_program->setUniformValue (0, mvpMatrix);                                            // location 0
+            m_program->setUniformValue (7, 1.0f, 0.0f, 1.0f, 1.0f);                        // location 7 (Magenta base)
+            m_program->setUniformValue (6, m_entityManager->m_tracker->m_filterActive);   // location 6
+
+            if (m_entityManager->m_tracker->m_filterActive)
+            {
+                float glDetectionRange = m_entityManager->m_tracker->m_detectionRange - Globe::globeRadius;
+                m_program->setUniformValue (4, m_entityManager->m_tracker->m_filterAnchor); // location 4
+                m_program->setUniformValue (5, glDetectionRange);                           // location 5
+            }
+
+            ::glEnable (GL_PROGRAM_POINT_SIZE); 
+            ::glEnable (GL_BLEND); 
+            ::glBlendFunc (GL_SRC_ALPHA, GL_ONE); 
+            ::glDepthFunc (GL_LEQUAL);
+
+            ::glBindBufferBase (GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
+            ::glBindVertexArray (m_dummyVaoId);
+
+            // Draw everything inside your dynamic asset array in one single high-speed pass
+            ::glDrawArrays (GL_POINTS, 0, totalSimulationCap);
+
+            ::glBindVertexArray (0);
+            ::glDisable (GL_BLEND);
+            m_program->release();
+        }
+    }
+
     void MyGLWidget::renderMissileArcs (const QMatrix4x4& mvpMatrix)
     {
-        // 1. Validate active data constraints
-        int activeMissiles = m_entityManager->getActiveMissileCount();
-        if (activeMissiles == 0) return;
+        // 1. COMPUTE TOTAL AVAIALABLE WEAPON ALLOCATION SLOTS
+        int totalSimulationCap = ::Config::getInstance().MAX_OBJECTS;
+        int tacticalStartSlot  = ::Config::getInstance().MAX_SAT_BUFF_SZ;
+        
+        int totalMissileSlots = totalSimulationCap - tacticalStartSlot;
 
-        // 2. Bind your pre-compiled SPIR-V missile line shader pipeline
+        if (totalMissileSlots <= 0) return;
+
+        // 2. BIND PIPELINE INFRASTRUCTURE
         if (this->setActiveShader ("MissilePaths"))
         {
             m_program->bind();
             
-            // Pass uniforms directly to hardcoded location indices bypassing string hashes
-            m_program->setUniformValue (0, mvpMatrix); // Vertex location 0 (mvp matrix)
+            // Pass uniforms directly to their explicit location indices
+            m_program->setUniformValue (0, mvpMatrix);              // layout(location = 0)
+            m_program->setUniformValue (4, 0.0f, 0.8f, 1.0f, 1.0f); // layout(location = 4) Electric Blue
+            m_program->setUniformValue (3, tacticalStartSlot);      // layout(location = 3)
+
+            // =====================================================================
+            // UNIFIED FILTER DATA INJECTION
+            // =====================================================================
+            bool isFilterOn = m_entityManager->m_tracker->m_filterActive;
+            m_program->setUniformValue (6, isFilterOn); // layout(location = 6)
             
-            // Fragment uniforms live in an independent pool - safely sets your color index
-            m_program->setUniformValue (0, 0.0f, 0.8f, 1.0f, 1.0f); // Fragment location 0: Electric Blue
-
-            // Configure blending properties for an energy glow trail appearance
-            ::glEnable(GL_BLEND);
-            ::glBlendFunc(GL_SRC_ALPHA, GL_ONE); 
-
-            // Bind the secondary trajectory buffer container to global index slot 1
-            ::glBindBufferBase (GL_SHADER_STORAGE_BUFFER, 1, m_trajectorySsboId);
-
-            // Render each missile's tracking path as an independent 64-vertex line strip curve
-            for (int i = 0; i < activeMissiles; ++i)
+            if (isFilterOn)
             {
-                GLint firstVertexOffset = i * 64;
+                float glDetectionRange = m_entityManager->m_tracker->m_detectionRange - Globe::globeRadius;
                 
-                // Safe global profile draw command pass
-                ::glDrawArrays (GL_LINE_STRIP, firstVertexOffset, 64);
+                // Inject to your layout locations 4 and 5 inside the vertex shader
+                m_program->setUniformValue (4, m_entityManager->m_tracker->m_filterAnchor); // location 4
+                m_program->setUniformValue (5, glDetectionRange);                           // location 5
             }
 
-            // Restore default graphics states cleanly
+            ::glEnable (GL_BLEND);
+            ::glBlendFunc (GL_SRC_ALPHA, GL_ONE); 
+            ::glDepthFunc (GL_LEQUAL);
+            ::glLineWidth (1.0f); 
+
+            // Bind your primary integrated data block straight to global slot 0
+            ::glBindBufferBase (GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
+            ::glBindVertexArray (m_dummyVaoId);
+
+            // =====================================================================
+            // OPTIMIZED INSTANCED DRAW COMMAND (ZERO CPU STEPS)
+            // =====================================================================
+            // This tells the GPU to evaluate all allocated weapon slots in parallel.
+            // It bypasses the old driver bottleneck, keeping your startup speed unthrottled.
+            ::glDrawArraysInstanced (GL_LINE_STRIP, 0, 64, totalMissileSlots);
+
+            ::glBindVertexArray (0);
             ::glDisable (GL_BLEND);
             m_program->release();
         }

@@ -4,6 +4,7 @@
 #define UTILITY_HXX
 
 #include "Globe.hxx"
+#include <random>
 #include <QtMath>
 #include <QVector3D>
 #include <QString>
@@ -306,6 +307,42 @@ namespace SimCore
 
                 return true;
             }
+
+            // Thread-safe range randomizer for floating-point values
+            static float randomFloat (float min, float max)
+            {
+                // thread_local ensures each of the 32 worker threads initializes 
+                // this engine exactly once on its own core, running 100% lock-free
+                static thread_local std::random_device rd;
+                static thread_local std::mt19937 generator (rd());
+                
+                std::uniform_real_distribution<float> distribution (min, max);
+                return distribution (generator);
+            }
+
+            // Thread-safe range randomizer for standard integer allocations
+            static int randomInt (int min, int max)
+            {
+                static thread_local std::random_device rd;
+                static thread_local std::mt19937 generator (rd());
+                
+                std::uniform_int_distribution<int> distribution (min, max);
+                return distribution (generator);
+            }
+
+            // High-precision spherical directional unit vector generator
+            static QVector3D randomSphericalVector()
+            {
+                // Uniformly distribute angles across a true 3D spherical shell
+                float theta = randomFloat (0.0f, 2.0f * M_PI);
+                float phi   = acos (randomFloat (-1.0f, 1.0f));
+
+                return QVector3D (sin(phi) * cos(theta),
+                                  sin(phi) * sin(theta),
+                                  cos(phi)
+                                 );
+            }
+
     };
 
 } // namspace Utility

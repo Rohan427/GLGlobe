@@ -51,6 +51,10 @@ class Config : public configuration::Configuration
         unsigned int MAX_FPU_THREADS = 64;
         int MAX_OBJECTS = 500000; //Fallback for bad configuration files
         int MAX_MISSILES = 1000; //Fallback for bad configuration files
+        float MAX_ICBM_SPD;
+        float MAX_HYP_SPD;
+        float MAX_THAAD_SPD;
+        int MAX_SAT_BUFF_SZ;
 
         struct ConfigErr
         {
@@ -112,6 +116,10 @@ class Config : public configuration::Configuration
         float getRangeRingDelta();
         int getMaxObjects();
         int getMaxMissiles();
+        float getMaxIcbmSpd();
+        float getMaxHypSpd();
+        float getMaxThaadSpd();
+        int getMaxSatBuffSz();
 
         //bool isCurrent();
         //time_t getLastReadTime();

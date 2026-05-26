@@ -6,8 +6,9 @@ layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 struct GpuEntityData
 {
     vec4 position;  // xyz = Position, w = Scaling factor
-    vec4 velocity;  // xyz = Velocity vector, w = Global active flag
-    vec4 metadata;  // x = Decay/Timer, y = Mass, z = Unused, w = TYPE IDENTIFIER
+    vec4 velocity;  // xyz = Direction vector, w = Target Speed (Mach)
+    vec4 metadata;  // x = Lifespan, y = Thrust, z = State ID, w = TYPE_ID
+    vec4 padding;   // Matches C++ 64-byte struct stride layout footprint
 };
 
 layout (std430, binding = 0) buffer SimulationBlock
@@ -17,6 +18,7 @@ layout (std430, binding = 0) buffer SimulationBlock
 
 layout (location = 0) uniform float deltaTime;
 layout (location = 1) uniform float globeRadius; // Currently 1.0f
+layout (location = 2) uniform float glGravity;   // Converted gravitational pull scalar (GL/s^2)
 
 void main()
 {
@@ -26,17 +28,30 @@ void main()
 
     // Fetch the Type Identifier safely from the metadata block
     float entityType = entities[index].metadata.w;
+    float stateId    = entities[index].metadata.z;
+    
+    // Skip empty or deactivated memory slots instantly
+    if (entityType == 0.0f || stateId == 30.0f) return;
+
+    vec3 pos = entities[index].position.xyz;
+    vec3 vel = entities[index].velocity.xyz;
+    float glUnitsPerSecond = entities[index].velocity.w;
+
+    float distToCenter = length(pos);
+
+    // Transition: Once the threat clears 1500km altitude, kick it to ballistic phase
+    float targetAltitudeThreshold = globeRadius * 1.235f; 
 
     // =========================================================================
-    // BRANCH-FREE WORKLOAD ROUTING
+    // DYNAMIC TACTICAL BALLISTICS ROUTING ENGINE
     // =========================================================================
-    if (entityType == 1.0f)
+    if (entityType == 1.0f || entityType == 0.0f || stateId == 30.0f)
     {
-        // TYPE_SGP4_SATELLITE: Completely skip! 
-        // Your 32 CPU worker threads are already updating this slot via persistent mapping.
+        // TYPE_SGP4_SATELLITE: Standard clean orbit advancement
+//        pos += vel * glUnitsPerSecond * deltaTime;
+//        entities[index].position.xyz = pos;
         return; 
     }
-    
     else if (entityType == 2.0f)
     {
         // TYPE_KINETIC_DEBRIS: Process gravitational falling physics on the GPU
@@ -47,8 +62,7 @@ void main()
         if (distToCenter > globeRadius)
         {
             // Apply Newtonian pull toward the Earth center (0,0,0)
-            float gravityConstant = 0.35f;
-            vec3 gravityPull = -normalize(pos) * (gravityConstant / (distToCenter * distToCenter));
+            vec3 gravityPull = -normalize(pos) * (glGravity / (distToCenter * distToCenter));
             
             vel += gravityPull * deltaTime;
             pos += vel * deltaTime;
@@ -57,6 +71,12 @@ void main()
             entities[index].position.xyz = pos;
             entities[index].velocity.xyz = vel;
             entities[index].metadata.x  -= deltaTime; // Tick down lifespan timer
+
+            // If the lifespan expires before crashing, dissolve the fragment cleanly
+            if (entities[index].metadata.x > targetAltitudeThreshold)
+            {
+                entities[index].metadata.z = 20.0f; // Shift to Ballistic re-entry state
+            }
         }
         else
         {
@@ -64,13 +84,46 @@ void main()
             entities[index].metadata.w = 0.0f; 
         }
     }
-    
-    else if (entityType == 3.0f)
+    else if (entityType == 3.0f || entityType == 4.0f)
     {
-        // TYPE_TACTICAL_MISSILE: Guided intercept steering algorithms
-        // Update rocket position along its pre-calculated ballistic arc
-        entities[index].position.xyz += entities[index].velocity.xyz * deltaTime;
+        // TYPE_INCOMING_THREAT (ICBM / Hypersonic)
+
+        if (stateId == 10.0f)
+        {
+            // STATE_LAUNCH_THRUST: Accelerating up into the atmosphere
+            float glThrustAcceleration = entities[index].metadata.y;
+            
+            // Apply thrust acceleration along your directional velocity vector path
+            vel += normalize (vel) * glThrustAcceleration * deltaTime;
+            pos += vel * glUnitsPerSecond * deltaTime;
+
+            if (distToCenter > targetAltitudeThreshold)
+            {
+                entities[index].metadata.z = 20.0f; // Shift to Ballistic state automatically
+            }
+        } 
+        else if (stateId == 20.0f)
+        {
+            // STATE_BALLISTIC: True gravitational terminal re-entry curve
+            // Real Newton gravity pull: a = -G * M / r^2
+            // Uses your dynamically passed uniform glGravity parameter
+            vec3 gravityPull = -normalize (pos) * (glGravity / (distToCenter * distToCenter));
+            
+            // Apply the gravitational acceleration modification vector directly
+            vel += gravityPull * deltaTime;
+            pos += normalize (vel) * glUnitsPerSecond * deltaTime;
+        }
         
-        // (Your automated guidance adjustments or proximity fuze scans can run here)
+        // Target Impact Validation Check
+        if (distToCenter <= globeRadius) {
+            entities[index].metadata.z = 30.0f; // Terminate entity state slot
+            entities[index].metadata.w = 0.0f;  // Mark slot as DEAD/Recyclable
+            pos = vec3 (0.0f);
+            vel = vec3 (0.0f);
+        }
+
+        // Write the data modifications back into the persistent SSBO
+        entities[index].position.xyz = pos;
+        entities[index].velocity.xyz = normalize (vel);
     }
 }

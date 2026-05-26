@@ -102,12 +102,26 @@ namespace SimCore
                 return static_cast<int> (this->m_missiles.size());
             }
 
+            const std::vector<Objects::GuidedMissile*>& getMissiles() const
+            {
+                return m_missiles;
+            }
+
             // Static helper for the parsing thread
             static void* parsingTask (void* arg);
             void addBatch (const std::vector<BaseEntity*>&& newEntities);
             void removeByGroup (const QString& groupKey);
             void handleSatelliteExplosion (size_t targetIndex, const QVector3D& impactPos);
             QVector3D CalculateExplosionVector();
+            void injectTestThreat (const QVector3D& launchOrigin, const QVector3D& impactTarget);
+            void injectGpuThreat (const QVector3D& origin, const QVector3D& target);
+            void initializeSatelliteBufferSlots();
+            void clearSatelliteBufferZone();
+
+            Objects::GuidedMissile* getMissileAtIndex (int index)
+            {
+                return m_missiles.at (index);
+            }
 
         public slots: // Or just public:
             void processTleData (const QString& data, const QString& group);

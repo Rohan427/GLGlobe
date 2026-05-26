@@ -74,6 +74,11 @@ namespace SimCore
     {
         private:
             Q_OBJECT
+
+            // Critical for all simulation timing
+            QElapsedTimer m_frameTimer;
+            float m_masterDeltaTimeSec = 0.001f; // Class-scoped master time reference variable
+
             GLuint textureID = 0;
             GLuint dayTextureID = 0;
             GLuint nightTextureID = 0;
@@ -114,10 +119,6 @@ namespace SimCore
             float sensitivity = 5.0f; // Adjust to feel
             float rotSensitivity = 0.2f;
 
-            GLuint m_satVao;
-            GLuint m_satVbo;
-            std::vector<QVector3D> m_satPositions; // GPU staging buffer
-            
             Network::CelesTrakSource* m_satelliteSource;
 
             GLuint m_cityVao;
@@ -133,7 +134,8 @@ namespace SimCore
             void initCapitals (QString filename);
             QVector3D latLonToXYZ (float lat, float lon, float radius);
             bool allocateSimulationSSBO (int totalEntities);
-            void renderSatellitePoints (const QMatrix4x4& mvpMatrix);
+            void renderSatellitePoints_legacy (const QMatrix4x4& mvpMatrix); // Sats calculated on CPU
+            void renderSatellitePoints (const QMatrix4x4& mvpMatrix); // Everything calcualted on GPU
             void renderMissileArcs (const QMatrix4x4& mvpMatrix);
 
         public:

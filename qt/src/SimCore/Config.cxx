@@ -218,6 +218,35 @@ int Config::getMaxMissiles()
     return MAX_MISSILES;
 }
 
+float Config::getMaxIcbmSpd()
+{
+    MAX_ICBM_SPD = (float)getDouble ("maxIcbmSpd");
+
+    return MAX_ICBM_SPD;
+}
+
+float Config::getMaxHypSpd()
+{
+    MAX_HYP_SPD = (float)getDouble ("maxHypSpd");
+
+    return MAX_HYP_SPD;
+}
+
+float Config::getMaxThaadSpd()
+{
+    MAX_THAAD_SPD = (float)getDouble ("maxThaadSpd");
+
+    return MAX_THAAD_SPD;
+}
+
+int Config::getMaxSatBuffSz()
+{
+    MAX_SAT_BUFF_SZ = (int)getUint64 ("maxSatBuffSz");
+
+    return MAX_SAT_BUFF_SZ;
+}
+
+
 
 
 
@@ -342,6 +371,10 @@ bool Config::update()
                     getRangeRingDelta();
                     getMaxObjects();
                     getMaxMissiles();
+                    getMaxIcbmSpd();
+                    getMaxHypSpd();
+                    getMaxThaadSpd();
+                    getMaxSatBuffSz();
 
                     std::time (&timestamp);
                 }

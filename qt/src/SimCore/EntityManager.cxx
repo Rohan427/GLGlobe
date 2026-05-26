@@ -219,7 +219,7 @@ namespace SimCore
         m_numThreads = numThreads;
         
         // 1. DETERMINE SYSTEM HARDWARE AND EXECUTION PERMISSIONS
-        // The resulting list can be used for spawning other threads and task later
+        // The resulting list can be used for spawning other threads and tasks later
         m_selectedTier = SystemCapabilities::AnalyzeTopologyAndPermissions (m_hardwareCorePool);
 
         if (m_hardwareCorePool.size() < m_numThreads)
@@ -252,6 +252,24 @@ namespace SimCore
 
         SIM_LOG (LM_INFO, QString ("System Initialization: Selected Operating Framework: %1").arg (tierName));
         SIM_LOG (LM_INFO, QString ("Detected Total Hardware Units: %1 available processing paths.").arg (m_numThreads));
+
+        // Inside EntityManager::startSimulation() right after parsing topology
+    SIM_LOG(LM_INFO, QString("HETEROGENEOUS POOL MAPPING SUMMARY:"));
+    SIM_LOG(LM_INFO, QString("  -> Main Thread / UI: Reserved exclusively for Core 0"));
+
+    size_t physicalCount = 0;
+    size_t siblingCount  = 0;
+
+    for (const auto& core : m_hardwareCorePool)
+    {
+        if (core.isHTSibling) siblingCount++;
+        else physicalCount++;
+    }
+
+    SIM_LOG (LM_INFO, QString ("  -> Pool 1 (SGP4 Workers): %1 Physical Cores allocated (Cores 1-15)")
+             .arg (physicalCount - 1));
+    SIM_LOG (LM_INFO, QString ("  -> Pool 2 (Path Predictors): %1 Sibling Cores allocated (Cores 17-31)")
+             .arg (siblingCount - 1));
 
         // 3. SYNCHRONIZE BARRIER LIFECYCLE HANDSHAKE
         m_barrier = new ACE_Barrier (m_numThreads + 1);
@@ -289,6 +307,8 @@ namespace SimCore
             });
 
             m_entities.erase (it, m_entities.end());
+
+            this->clearSatelliteBufferZone();
         }
 
         // Free memory
@@ -418,11 +438,23 @@ namespace SimCore
         // =========================================================================
         // 2. DATA PROCESSING PIPELINE
         // =========================================================================
+        auto lastTickTime = std::chrono::high_resolution_clock::now();
+
         while (!m_done)// && !this->msg_queue()->deactivated())
         {
             auto now = std::chrono::high_resolution_clock::now();
+
+            // SGP4 times
             auto duration = now.time_since_epoch();
             qint64 msecs = std::chrono::duration_cast<std::chrono::milliseconds> (duration).count();
+
+
+            // Missile times
+            auto m_duration = std::chrono::duration_cast<std::chrono::microseconds> (now - lastTickTime).count();
+            lastTickTime = now;
+            // Convert microseconds to fractional elapsed seconds parameter, passed to missile physicis engine
+            float frameDeltaSeconds = static_cast<float>(m_duration) / 1000000.0f;
+
 
             SIM_LOG (LM_DEBUG, QString ("Aquire lock %1").arg (localThreadId));
 
@@ -430,7 +462,6 @@ namespace SimCore
             if (m_vectorLock.tryacquire() == 0)
             {
                 size_t currentSize = m_entities.size();
-
                 size_t satCount     = m_entities.size();
                 size_t missileCount = m_missiles.size();
 
@@ -486,12 +517,12 @@ namespace SimCore
                             if (missile && missile->isActive())
                             {
                                 // 1. Advance linear trajectory curves using CPU mathematical tracking
-                                missile->updatePhysics (msecs, Globe::m_liveOffset);
+                                missile->updatePhysics (frameDeltaSeconds);
                                 
                                 // 2. ZERO-COPY TRAIL STREAMING: Push points directly to VRAM binding slot 1
                                 if (this->m_persistentTrailPtr != nullptr)
                                 {
-                                    missile->updateTrailGeometry (this->m_persistentTrailPtr);
+                                    missile->updateTrailGeometry (this->m_persistentTrailPtr, frameDeltaSeconds);
                                 }
                             }
                         }
@@ -602,19 +633,179 @@ namespace SimCore
 
     QVector3D EntityManager::CalculateExplosionVector()
     {
-        // 1. Generate two randomized angular values spanning a spherical field
-        float theta = (static_cast<float> (rand()) / static_cast<float> (RAND_MAX)) * 2.0f * M_PI; // 0 to 2PI
-        float phi   = acos(2.0f * (static_cast<float>(rand()) / static_cast<float> (RAND_MAX)) - 1.0f); // 0 to PI
+        // 1. Fetch an aligned, randomized 3D unit direction vector
+        QVector3D blastDirection = Utility::randomSphericalVector();
 
-        // 2. Generate a randomized kinetic velocity expansion speed scalar
-        // Tweak 0.01f and 0.03f to make the debris clouds expand faster or slower over your globe
-        float speed = 0.01f + (static_cast<float> (rand()) / static_cast<float> (RAND_MAX)) * 0.02f;
+        // 2. Compute a randomized speed scalar using clean relative bounds
+        // (Tweak these variables to control how fast the debris shards expand)
+        float minSpeed = 0.01f;
+        float maxSpeed = 0.03f;
+        float blastVelocity = Utility::randomFloat (minSpeed, maxSpeed);
 
-        // 3. Convert the spherical angular positions into standard 3D Cartesian coordinates
-        float vx = sin (phi) * cos (theta) * speed;
-        float vy = sin (phi) * sin (theta) * speed;
-        float vz = cos (phi) * speed;
+        // Return the completed directional move velocity vector
+        return blastDirection * blastVelocity;
+    }
 
-        return QVector3D (vx, vy, vz);
+    void EntityManager::injectTestThreat (const QVector3D& launchOrigin, const QVector3D& impactTarget)
+    {
+        // Acquire an exclusive write lock to modify the vector safely
+        // (Briefly pauses your physics loops during the pointer push)
+        if (m_vectorLock.acquire_write() == 0)
+        {
+            size_t nextSsboSlot = m_missiles.size();
+
+            // Safety limit: Don't overflow your allocated 500-missile buffer bounds
+            if (nextSsboSlot < static_cast<size_t>(::Config::getInstance().MAX_MISSILES))
+            {
+                int uniqueId = static_cast<int> (nextSsboSlot) + 1000;
+                
+                // Instantiate a new threat entity
+                Objects::GuidedMissile* threat = new Objects::GuidedMissile (uniqueId, nextSsboSlot,
+                                                                             launchOrigin, impactTarget);
+                threat->setTargetMode (TargetMode::ANTI_SATELLITE_STRIKE);
+                
+                m_missiles.push_back (threat);
+
+                // =========================================================================
+                // PRODUCTION TEST REPAIR: PRE-INITIALIZE PERSISTENT VRAM TRAIL DATA FIELDS
+                // =========================================================================
+                // Directly populate all 64 vertex layout blocks to force instant visibility on screen
+                if (this->m_persistentTrailPtr != nullptr)
+                {
+                    size_t bufferStartOffset = nextSsboSlot * 64;
+                    
+                    for (size_t i = 0; i < 64; ++i)
+                    {
+                        // Pre-fill the coordinates with the launch origin position vector
+                        this->m_persistentTrailPtr[bufferStartOffset + i].position = 
+                            QVector4D (launchOrigin.x(), launchOrigin.y(), launchOrigin.z(), 1.0f);
+                    }
+                }
+                
+                SIM_LOG (LM_INFO, QString ("TACTICAL INJECTOR: Spawned Threat MSL-%1 into SSBO Slot %2")
+                         .arg (uniqueId)
+                         .arg (nextSsboSlot)
+                        );
+            }
+            else
+            {
+                SIM_LOG (LM_WARNING, QString ("TACTICAL INJECTOR: Maximum missile buffer capacity (%1) reached!")
+                         .arg (::Config::getInstance().MAX_MISSILES)
+                        );
+            }
+
+            m_vectorLock.release();
+        }
+        else
+        {
+            SIM_LOG (LM_CRITICAL, "FAILED TO GET VECTOR WRITE LOCK");
+        }
+    }
+
+    void EntityManager::injectGpuThreat (const QVector3D& origin, const QVector3D& target)
+    {
+        if (m_vectorLock.acquire_write() == 0)
+        {
+            size_t totalSimulationCap = static_cast<size_t>(::Config::getInstance().MAX_OBJECTS);
+            
+            // Honor your strict catalog firewall boundary to protect your SGP4 satellite tracks
+            size_t tacticalStartSlot  = static_cast<size_t>(::Config::getInstance().MAX_SAT_BUFF_SZ);
+
+            for (size_t i = tacticalStartSlot; i < totalSimulationCap; ++i)
+            {
+                // Locate an open, dead memory slot inside the persistent array tracking grid
+                if (this->m_persistentBufferPtr[i].metadata.w() == 0.0f)
+                { // TYPE_DEAD_SLOT
+                    
+                    // Identify if this is a defensive launch or an incoming threat trajectory
+                    bool isInterceptor = (origin.length() < (Globe::globeRadius * 1.05f)); 
+                    float typeId = isInterceptor ? 3.0f : 4.0f; // 3.0 = Interceptor, 4.0 = Threat
+                    
+                    // Scale target velocities dynamically matching your configuration parameters
+                    float targetMach = isInterceptor ? (::Config::getInstance().MAX_THAAD_SPD * 1.5f) : ::Config::getInstance().MAX_ICBM_SPD;
+                    float glUnitsPerSecond = targetMach * Globe::glScaleFactor;
+
+                    // =====================================================================
+                    // VERIFIED ZERO-COPY VRAM CORES INJECTION
+                    // =====================================================================
+                    // Write the raw randomized origin position straight into the buffer slot!
+                    this->m_persistentBufferPtr[i].position = QVector4D (origin.x(), origin.y(), origin.z(), 1.0f);
+                    
+                    // Compute the explicit normalized directional trajectory path vector
+                    QVector3D travelDir = (target - origin).normalized();
+                    this->m_persistentBufferPtr[i].velocity = QVector4D (travelDir.x(), travelDir.y(), travelDir.z(), glUnitsPerSecond);
+                    
+                    // Initialize metadata variables
+                    this->m_persistentBufferPtr[i].metadata.setX (120.0f);                       // 120s flight clock
+                    this->m_persistentBufferPtr[i].metadata.setY (0.0f);                         // No thrust variations
+                    this->m_persistentBufferPtr[i].metadata.setZ (20.0f);                        // Jump straight to ballistic
+                    this->m_persistentBufferPtr[i].metadata.setW (typeId);                       // Explicit macro identifier
+
+                    std::string threat_name = isInterceptor ? "THAAD" : "ICBM";
+
+                    SIM_LOG (LM_INFO, QString ("TACTICAL INJECTOR: Spawned Threat MSLinto SSBO Slot %2")
+                             .arg (threat_name)
+                             .arg (i)
+                            );
+                    
+                    m_vectorLock.release();
+                    return; // Escape immediately once memory slot configuration handshakes
+                }
+            }
+            m_vectorLock.release();
+        }
+    }
+
+    void EntityManager::initializeSatelliteBufferSlots()
+    {
+        if (this->m_persistentBufferPtr != nullptr)
+        {
+            size_t satBufferCeiling   = static_cast<size_t>(::Config::getInstance().MAX_SAT_BUFF_SZ);
+            size_t totalSimulationCap = static_cast<size_t>(::Config::getInstance().MAX_OBJECTS);
+            
+            // Tier 1: Flag the satellite zone cleanly
+            for (size_t i = 0; i < satBufferCeiling; ++i)
+            {
+                this->m_persistentBufferPtr[i].metadata.setW (1.0f); // 1.0 = TYPE_SGP4_SATELLITE
+                this->m_persistentBufferPtr[i].velocity.setW (1.0f); // Active status
+            }
+            
+            // =====================================================================
+            // PRODUCTION REPAIR: FIREWALL THE REMAINDER OF THE 500K BOUNDARY
+            // =====================================================================
+            // Zeroing out the rest of the array ensures the vertex shader sees typeId == 0.0f
+            // for unused slots and exits before running mathematical divisions on empty slots!
+            for (size_t i = satBufferCeiling; i < totalSimulationCap; ++i)
+            {
+                this->m_persistentBufferPtr[i].position = QVector4D (0.0f, 0.0f, 0.0f, 0.0f);
+                this->m_persistentBufferPtr[i].velocity = QVector4D (0.0f, 0.0f, 0.0f, 0.0f);
+                this->m_persistentBufferPtr[i].metadata = QVector4D (0.0f, 0.0f, 0.0f, 0.0f); // setW(0.0f) = TYPE_DEAD_SLOT
+            }
+            
+            SIM_LOG (LM_INFO, QString ("CATALOG INITIALIZATION SUCCESS: Sanitized 500,000 SSBO memory slots cleanly."));
+        }
+        else
+        {
+            SIM_LOG (LM_CRITICAL, QString ("CATALOG INITIALIZATION FAILED: Bufer not instantiated."));
+        }
+    }
+
+    void EntityManager::clearSatelliteBufferZone()
+    {
+        if (this->m_persistentBufferPtr != nullptr)
+        {
+            size_t satBufferCeiling = static_cast<size_t> (::Config::getInstance().MAX_SAT_BUFF_SZ);
+            
+            // Scrub only your designated satellite catalog zone
+            for (size_t i = 0; i < satBufferCeiling; ++i)
+            {
+                // Setting the TYPE_ID to 0.0f activates the vertex shader's early-exit gate
+                this->m_persistentBufferPtr[i].position = QVector4D (0.0f, 0.0f, 0.0f, 0.0f);
+                this->m_persistentBufferPtr[i].velocity = QVector4D (0.0f, 0.0f, 0.0f, 0.0f);
+                this->m_persistentBufferPtr[i].metadata = QVector4D (0.0f, 0.0f, 0.0f, 0.0f); // metadata.w() = 0.0f
+            }
+            
+            SIM_LOG (LM_INFO, "VRAM SYSTEM SYNCHRONIZATION: Cleared satellite buffer zone to remove ghost tracks.");
+        }
     }
 } // namespace SimCore
