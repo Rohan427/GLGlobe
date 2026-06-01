@@ -98,9 +98,6 @@ namespace SimCore
 
         SIM_LOG (LM_INFO, "Core Profile Validation: Clean dummy VAO initialized successfully.");
 
-        int numThreads = std::thread::hardware_concurrency(); 
-        if (numThreads == 0) numThreads = 16; // Fallback
-
         initializeOpenGLFunctions(); // Required in Qt to access gl* calls
 
         // Initialize City VBO
@@ -262,6 +259,16 @@ namespace SimCore
     void MyGLWidget::paintGL() 
     {
         SIM_LOG (LM_DEBUG, "paintGL");
+
+        this->makeCurrent();
+
+        // ←←← ADD THIS GUARD ←←←
+        if (!m_persistentBufferPtr || m_ssboHardwareId == 0)
+        {
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            glClearColor(0.0f, 0.0f, 0.1f, 1.0f);
+            return;
+        }
 
         // CRITICAL TIMING CLOCK: INITIALIZE THE PERSISTENT MASTER CLOCK CONTAINER ON THE FIRST FRAME
         if (!m_frameTimer.isValid())
@@ -654,8 +661,21 @@ namespace SimCore
 
     void MyGLWidget::resizeGL (int w, int h)
     {
-        glViewport (0, 0, w, h);
-        updateStatus(); // Update the UI with new aspect-aware pos
+        if (w <= 0 || h <= 0)
+            return;
+
+        this->makeCurrent();
+
+        glViewport(0, 0, w, h);
+
+        // Update projection matrix used by paintGL()
+        float aspect = static_cast<float>(w) / static_cast<float>(h);
+        Globe::projectMatrix.setToIdentity();
+        Globe::projectMatrix.perspective(45.0f, aspect, 0.1f, 20000.0f);
+
+        this->update();   // Important: trigger paintGL with new aspect
+
+        SIM_LOG(LM_DEBUG, QString("ResizeGL: %1x%2  aspect=%.3f").arg(w).arg(h).arg(aspect));
     }
 
     // Inside your widget for executing compute shader
@@ -1299,185 +1319,107 @@ namespace SimCore
         m_satelliteSource->requestGroup (groupKey);
     }
 
+
     bool MyGLWidget::allocateSimulationSSBO (int totalEntities)
     {
         this->makeCurrent();
 
-        if (::glGenBuffers == nullptr || ::glBindBuffer == nullptr || ::glMapBufferRange == nullptr)
+        if (!::glGenBuffers || !::glBindBuffer || !::glMapBufferRange)
         {
-            SIM_LOG (LM_CRITICAL, "CRITICAL: allocateSimulationSSBO failed. GLAD 2 pointers are NULL!");
+            SIM_LOG(LM_CRITICAL, "CRITICAL: GLAD2 function pointers not loaded!");
             return false;
         }
 
-        // =========================================================================
-        // 1. ALLOCATE SATELLITE SSBO CONTAINER (BINDING SLOT 0)
-        // =========================================================================
-        ::glGenBuffers (1, &m_ssboHardwareId);
+        // =====================================================================
+        // CLEANUP PREVIOUS ALLOCATION (Critical for re-enable after disable)
+        // =====================================================================
+        releaseSimulationSSBO();   // <-- NEW: safe cleanup first
 
+        // =====================================================================
+        // 1. SATELLITE SSBO (Binding 0)
+        // =====================================================================
+        ::glGenBuffers(1, &m_ssboHardwareId);
         if (m_ssboHardwareId == 0)
         {
-            SIM_LOG (LM_CRITICAL, "SSBO ALLOCATION FAILURE: Driver failed to generate ID for Satellite Buffer.");
+            SIM_LOG(LM_CRITICAL, "Failed to generate SSBO ID");
             return false;
         }
 
-        ::glBindBuffer (GL_SHADER_STORAGE_BUFFER, m_ssboHardwareId);
+        ::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_ssboHardwareId);
 
-        GLsizeiptr bufferSize = totalEntities * sizeof (DataObjects::GpuEntityData);
+        const GLsizeiptr bufferSize = static_cast<GLsizeiptr>(totalEntities) * sizeof(DataObjects::GpuEntityData);
+        const GLbitfield storageFlags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | 
+                                        GL_MAP_COHERENT_BIT | GL_DYNAMIC_STORAGE_BIT;
+        const GLbitfield mapFlags     = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
 
-        // PERSISTENT STORAGE FLAGS:
-        // GL_MAP_WRITE_BIT: Thread blocks can write directly to this structure
-        // GL_MAP_PERSISTENT_BIT: Pointer remains valid continuously across frames without unmapping
-        // GL_MAP_COHERENT_BIT: Writes are automatically made visible to the GPU instantly
-        GLbitfield storageFlags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT | GL_DYNAMIC_STORAGE_BIT;
-        GLbitfield mapFlags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
-        
-        ::glBufferStorage (GL_SHADER_STORAGE_BUFFER, bufferSize, nullptr, storageFlags);
+        ::glBufferStorage(GL_SHADER_STORAGE_BUFFER, bufferSize, nullptr, storageFlags);
 
-        // Map the GPU memory permanently into a CPU pointer address
+        // Zero the entire buffer
+        ::glClearBufferData(GL_SHADER_STORAGE_BUFFER, GL_RGBA32F, GL_RGBA, GL_FLOAT, nullptr);
+
         m_persistentBufferPtr = reinterpret_cast<DataObjects::GpuEntityData*>(
-                                 ::glMapBufferRange (GL_SHADER_STORAGE_BUFFER, 0, bufferSize, mapFlags)
+                                    ::glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, bufferSize, mapFlags)
                                 );
 
-        if (m_persistentBufferPtr == nullptr)
+        if (!m_persistentBufferPtr)
         {
-            GLenum error = ::glGetError();
-
-            SIM_LOG (LM_CRITICAL, QString ("CRITICAL: Satellite Map range failed. Driver code: 0x%1")
-                     .arg (error, 0, 16)
-                    );
-
+            SIM_LOG(LM_CRITICAL, QString("glMapBufferRange failed (error 0x%1)")
+                    .arg(::glGetError(), 0, 16));
+            releaseSimulationSSBO();
             return false;
         }
 
-        // Connect this buffer permanently to Global Layout Binding slot 0
-        ::glBindBufferBase (GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
-        ::glBindBuffer (GL_SHADER_STORAGE_BUFFER, 0);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
+        ::glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-        SIM_LOG (LM_INFO, QString ("Zero-Copy Persistent SSBO Initialized. Mapped %1 bytes to GPU slot 0.")
-                 .arg (bufferSize)
-                );
-        
-        // Pass the pointer to the EntityManager so the 32 threads can see it
-        m_entityManager->setGpuBufferPointer (m_persistentBufferPtr);
+        // CRITICAL: Update EntityManager with fresh pointer
+        if (m_entityManager)
+            m_entityManager->setGpuBufferPointer(m_persistentBufferPtr);
 
-        // =========================================================================
-        // 2. ALLOCATE MISSILE TRAJECTORY SSBO CONTAINER (BINDING SLOT 1)
-        // =========================================================================
-        ::glGenBuffers (1, &m_trajectorySsboId);
-
+        // =====================================================================
+        // 2. MISSILE TRAIL SSBO (Binding 1)
+        // =====================================================================
+        ::glGenBuffers(1, &m_trajectorySsboId);
         if (m_trajectorySsboId == 0)
         {
-            SIM_LOG (LM_CRITICAL, "SSBO ALLOCATION FAILURE: Driver failed to generate ID for Missile Buffer.");
+            SIM_LOG(LM_CRITICAL, "Failed to generate trajectory SSBO");
+            releaseSimulationSSBO();
             return false;
         }
 
-        ::glBindBuffer (GL_SHADER_STORAGE_BUFFER, m_trajectorySsboId);
+        ::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_trajectorySsboId);
 
-        // Sizing for MAX_MISSILES (default is 1000) active missiles, each containing a 64-vertex smooth rendering curve path
-        GLsizeiptr trailBufferSize = ::Config::getInstance().MAX_MISSILES * 64 * sizeof (QVector4D); 
-        GLbitfield trailFlags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT | GL_DYNAMIC_STORAGE_BIT;
+        const GLsizeiptr trailSize = static_cast<GLsizeiptr>(::Config::getInstance().MAX_MISSILES) * 64 
+                                     * sizeof(DataObjects::PathVertex);
 
-        if (trailBufferSize <= 0)
-        {
-            SIM_LOG (LM_CRITICAL, "SSBO FATAL: Calculated missile trajectory trail buffer size is invalid!");
-            return false;
-        }
-
-        ::glBufferStorage (GL_SHADER_STORAGE_BUFFER, trailBufferSize, nullptr, trailFlags);
+        ::glBufferStorage(GL_SHADER_STORAGE_BUFFER, trailSize, nullptr, storageFlags);
 
         m_persistentTrailPtr = reinterpret_cast<DataObjects::PathVertex*>(
-            ::glMapBufferRange (GL_SHADER_STORAGE_BUFFER, 0, trailBufferSize, mapFlags)
-        );
+                                   ::glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, trailSize, mapFlags)
+                               );
 
-        if (m_persistentTrailPtr == nullptr)
+        if (!m_persistentTrailPtr)
         {
-            GLenum error = ::glGetError();
-
-            SIM_LOG (LM_CRITICAL, QString("SSBO ALLOCATION FAILURE: Missile Map range failed. Driver code: 0x%1")
-                    .arg (error, 0, 16)
-                   );
-
+            SIM_LOG(LM_CRITICAL, "Missile trail mapping failed");
+            releaseSimulationSSBO();
             return false;
         }
 
-        if (m_trajectorySsboId > 0)
-        {
-            ::glBindBufferBase (GL_SHADER_STORAGE_BUFFER, 1, m_trajectorySsboId);
-        }
-        else
-        {
-            SIM_LOG (LM_CRITICAL, "SSBO FATAL: m_trajectorySsboId is corrupted or empty right before binding pass!");
-            return false;
-        }
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_trajectorySsboId);
+        ::glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-        ::glBindBuffer (GL_SHADER_STORAGE_BUFFER, 0);
+        if (m_entityManager)
+            m_entityManager->setGpuTrailPointer(m_persistentTrailPtr);
 
-        SIM_LOG (LM_INFO, QString ("Zero-Copy Persistent SSBO Initialized. Mapped %1 bytes to GPU slot 1.")
-                 .arg (trailBufferSize)
-                );
+        SIM_LOG(LM_INFO, QString("Persistent SSBOs allocated and mapped successfully (%1 entities)").arg(totalEntities));
 
-        m_entityManager->setGpuTrailPointer (m_persistentTrailPtr);
-
-        SIM_LOG (LM_INFO, "Exit allocateSimulationSSBO()");
+        // Initialize buffer content
+        if (m_entityManager)
+            m_entityManager->initializeSatelliteBufferSlots();
 
         return true;
     }
 
-
-    void MyGLWidget::renderSatellitePoints_legacy (const QMatrix4x4& mvpMatrix)
-    {
-        size_t entityCount = m_entityManager->getEntities().size();
-
-        if (entityCount == 0)
-        {
-            SIM_LOG (LM_DEBUG, "No entities detected");
-            return;
-        }
-
-        float currentGlobeRadius = ::Config::getInstance().DEFAULT_RADIUS;
-        float glDetectionRange   = m_entityManager->m_tracker->m_detectionRange - currentGlobeRadius;
-
-        if (this->setActiveShader ("Satellites"))
-        {
-            m_program->bind();
-            
-            // Pass your hardcoded uniform locations directly
-            m_program->setUniformValue (0, mvpMatrix);                                    // layout(location = 0)
-            m_program->setUniformValue (7, 1.0f, 0.0f, 1.0f, 1.0f);                       // layout(location = 7) Magenta
-            m_program->setUniformValue (6, m_entityManager->m_tracker->m_filterActive);   // layout(location = 6)
-            
-            if (m_entityManager->m_tracker->m_filterActive)
-            {
-                m_program->setUniformValue  (4, m_entityManager->m_tracker->m_filterAnchor); // layout(location = 4)
-                m_program->setUniformValue (5, glDetectionRange);                            // layout(location = 5)
-            }
-
-            ::glEnable (GL_PROGRAM_POINT_SIZE); 
-            ::glEnable (GL_BLEND); 
-            ::glBlendFunc (GL_SRC_ALPHA, GL_ONE); // Glow
-            ::glDepthFunc (GL_LEQUAL);
-
-            // Re-assert SSBO slot attachment
-            ::glBindBufferBase (GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
-
-            // =====================================================================
-            // MESA SPECIFICATION SAFETY FIX
-            // =====================================================================
-            // Bind the empty dummy state container. This completely satisfies 
-            // Mesa's Core Profile validation rules and prevents GL_INVALID_OPERATION!
-            ::glBindVertexArray (m_dummyVaoId);
-
-            // ZERO-COPY ACCELERATION DRAW CALL:
-            // No PCIe copies, no CPU synchronization stalls.
-            // The vertex shader reads positions directly out of the shared VRAM memory space.
-            ::glDrawArrays (GL_POINTS, 0, static_cast<GLsizei> (entityCount));
-
-            // Restore context state hygiene smoothly
-            ::glBindVertexArray (0);
-            ::glDisable (GL_BLEND);
-            m_program->release();
-        }
-    }
 
     void MyGLWidget::renderSatellitePoints (const QMatrix4x4& mvpMatrix)
     {
@@ -1555,7 +1497,7 @@ namespace SimCore
     void MyGLWidget::renderMissileArcs (const QMatrix4x4& mvpMatrix)
     {
         // 1. COMPUTE TOTAL AVAIALABLE WEAPON ALLOCATION SLOTS
-        int totalSimulationCap = ::Config::getInstance().MAX_OBJECTS;
+/*        int totalSimulationCap = ::Config::getInstance().MAX_OBJECTS;
         int tacticalStartSlot  = ::Config::getInstance().MAX_SAT_BUFF_SZ;
         
         int totalMissileSlots = totalSimulationCap - tacticalStartSlot;
@@ -1607,6 +1549,92 @@ namespace SimCore
             ::glDisable (GL_BLEND);
             m_program->release();
         }
+*/
     }
 
+    void MyGLWidget::releaseSimulationSSBO()
+    {
+        this->makeCurrent();
+
+        // 1. Tell EntityManager to stop writing immediately
+        if (m_entityManager)
+        {
+            m_entityManager->setGpuBufferPointer(nullptr);
+            m_entityManager->setGpuTrailPointer(nullptr);
+        }
+
+        // 2. Unmap + delete Satellite SSBO
+        if (m_persistentBufferPtr != nullptr)
+        {
+            ::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_ssboHardwareId);
+            ::glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+            m_persistentBufferPtr = nullptr;
+        }
+
+        if (m_ssboHardwareId != 0)
+        {
+            ::glDeleteBuffers(1, &m_ssboHardwareId);
+            m_ssboHardwareId = 0;
+        }
+
+        // 3. Unmap + delete Missile Trail SSBO
+        if (m_persistentTrailPtr != nullptr)
+        {
+            ::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_trajectorySsboId);
+            ::glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+            m_persistentTrailPtr = nullptr;
+        }
+
+        if (m_trajectorySsboId != 0)
+        {
+            ::glDeleteBuffers(1, &m_trajectorySsboId);
+            m_trajectorySsboId = 0;
+        }
+
+        ::glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+        SIM_LOG(LM_DEBUG, "SSBOs released successfully.");
+    }
+
+    void MyGLWidget::resizeEvent(QResizeEvent* event)
+    {
+        QOpenGLWidget::resizeEvent(event);
+        makeCurrent();   // Extra protection during resize
+    }
+
+    void MyGLWidget::restartFullSimulation()
+    {
+        this->makeCurrent();
+
+        SIM_LOG(LM_INFO, "=== FULL SIMULATION RESTART INITIATED ===");
+
+        // 1. Gracefully stop all SGP4 threads
+        if (m_entityManager)
+            m_entityManager->fullRestartSimulation();
+
+        // 2. Release old GPU buffers (critical to avoid stale pointers)
+        releaseSimulationSSBO();
+
+        // 3. Re-allocate fresh persistent SSBOs
+        if (!allocateSimulationSSBO(::Config::getInstance().MAX_OBJECTS))
+        {
+            SIM_LOG(LM_CRITICAL, "Failed to re-allocate SSBOs during full restart!");
+            return;
+        }
+
+        // 4. Re-initialize buffer content
+        if (m_entityManager)
+            m_entityManager->initializeSatelliteBufferSlots();
+
+        // 5. Restart simulation — let startSimulation() decide optimal thread count
+        if (m_entityManager)
+        {
+            // Pass a high number; the function will clamp based on hardware
+            m_entityManager->startSimulation(32);   
+        }
+
+        SIM_LOG(LM_INFO, "=== FULL SIMULATION RESTART COMPLETED SUCCESSFULLY ===");
+
+        this->update();   // Trigger repaint
+    }
 } // namspace SimCore

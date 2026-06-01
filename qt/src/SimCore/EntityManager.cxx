@@ -26,6 +26,8 @@ namespace SimCore
     
     void EntityManager::processTleData (const QString& info, const QString& group)
     {
+//        SIM_LOG (LM_INFO, "EntityManager::processTleData");
+
         if (info.startsWith ("FILE_READY:"))
         {
             // USE THE FILE READER TASK
@@ -109,26 +111,29 @@ namespace SimCore
         return nullptr;
     }
 
+
     void EntityManager::addBatch (const std::vector<BaseEntity*>&& newEntities)
     {
         if (newEntities.empty())
-        {
-        }
-
-        if (!EntityManager::instance())
         {
             return;
         }
 
         {
-            // Lock the vector once for the whole batch
-            ACE_GUARD (ACE_Thread_Mutex, mon, EntityManager::m_vectorLock);
+            ACE_GUARD(ACE_Thread_Mutex, mon, m_vectorLock);
 
             for (auto* entity : newEntities)
             {
                 if (!entity) continue;
 
-                auto* sat = static_cast<Space::Satellite*>(entity);
+                auto* sat = dynamic_cast<Space::Satellite*> (entity);
+
+                if (!sat)
+                {
+                    delete entity;
+                    continue;
+                }
+
                 QString id = sat->getNoradId();
 
                 if (m_activeIds.find (id) == m_activeIds.end())
@@ -138,16 +143,27 @@ namespace SimCore
                 }
                 else
                 {
-                    delete entity; // Already exists, discard the duplicate
+                    delete entity;   // duplicate
                 }
             }
 
             m_totalActiveEntities = static_cast<int> (m_entities.size());
-        } // ACE_GUARD (ACE_Thread_Mutex, mon, m_vectorLock);
+        } // lock released here
+
+        // Only sync if the buffer is ready
+        if (m_persistentBufferPtr)
+        {
+            synchronizeSatellitesToVRAM();
+        }
+
+//        SIM_LOG (LM_INFO, QString ("Added batch. Total satellites now: %1").arg (m_entities.size()));
     }
+
 
     void* EntityManager::fileReaderTask (void* arg)
     {
+ //       SIM_LOG (LM_INFO, "EntityManager::fileReaderTask");
+
         // 1. Capture and wrap in a smart pointer immediately for safety
         std::unique_ptr<FileTaskData> data (static_cast<FileTaskData*> (arg));
 
@@ -200,11 +216,22 @@ namespace SimCore
             EntityManager::instance()->addBatch (std::move (batch));
         }
 
+//        ACE_OS::sleep (ACE_Time_Value (1, 0));
+
+
         // THE HANDSHAKE: Before the unique_ptr 'data' is destroyed and the 
         // thread stack is reclaimed, ensure the Manager is done.
         {
             ACE_GUARD_RETURN (ACE_Thread_Mutex, mon, EntityManager::m_vectorLock, nullptr);
             // Simply acquiring the lock once here acts as a memory barrier
+        }
+
+        // Safe final sync with buffer check
+        auto* mgr = EntityManager::instance();
+
+        if (mgr && mgr->m_persistentBufferPtr)
+        {
+            mgr->synchronizeSatellitesToVRAM();
         }
 
         return nullptr; // data (unique_ptr) is deleted here automatically
@@ -254,8 +281,8 @@ namespace SimCore
         SIM_LOG (LM_INFO, QString ("Detected Total Hardware Units: %1 available processing paths.").arg (m_numThreads));
 
         // Inside EntityManager::startSimulation() right after parsing topology
-    SIM_LOG(LM_INFO, QString("HETEROGENEOUS POOL MAPPING SUMMARY:"));
-    SIM_LOG(LM_INFO, QString("  -> Main Thread / UI: Reserved exclusively for Core 0"));
+    SIM_LOG (LM_INFO, QString ("HETEROGENEOUS POOL MAPPING SUMMARY:"));
+    SIM_LOG (LM_INFO, QString ("  -> Main Thread / UI: Reserved exclusively for Core 0"));
 
     size_t physicalCount = 0;
     size_t siblingCount  = 0;
@@ -285,42 +312,46 @@ namespace SimCore
     {
         std::vector<BaseEntity*> toDelete;
 
-//        ACE_DEBUG((LM_INFO, ACE_TEXT("[TID:%t] Removing group: %s\n"), groupKey.toUtf8().constData()));
-        std::cout << "removing group " << groupKey.toUtf8().constData() << std::endl;
-        
-        {
-            ACE_GUARD (ACE_Thread_Mutex, mon, EntityManager::m_vectorLock);
-            
-            // Remove-Erase idiom: Fast and thread-safe inside the lock
-            auto it = std::remove_if (m_entities.begin(), m_entities.end(), [&](BaseEntity* e)
-            {
-                auto* sat = static_cast<Space::Satellite*> (e);
+        SIM_LOG(LM_INFO, QString("Removing group '%1'...").arg(groupKey));
 
+        {
+            ACE_GUARD(ACE_Thread_Mutex, mon, m_vectorLock);
+
+            auto it = std::remove_if(m_entities.begin(), m_entities.end(),
+                                     [&](BaseEntity* e) -> bool
+            {
+                if (!e) return false;
+                auto* sat = dynamic_cast<Space::Satellite*>(e);
                 if (sat && sat->getGroup() == groupKey)
                 {
-                    m_activeIds.erase (sat->getNoradId()); // Remove from set
-                    toDelete.push_back (e);
+                    m_activeIds.erase(sat->getNoradId());
+                    toDelete.push_back(e);
                     return true;
                 }
-
                 return false;
             });
 
-            m_entities.erase (it, m_entities.end());
+            m_entities.erase(it, m_entities.end());
+            m_totalActiveEntities = static_cast<int>(m_entities.size());
 
-            this->clearSatelliteBufferZone();
-        }
+            if (m_persistentBufferPtr)
+            {
+                clearSatelliteBufferZone();          // safe inside lock
+            }
+        } // mutex released here
 
-        // Free memory
+        // Delete outside lock
         for (auto* e : toDelete)
+            delete e;
+
+        // Re-sync remaining satellites safely
+        if (m_persistentBufferPtr)
         {
-            if (!e) continue;
-            delete e; 
+            synchronizeSatellitesToVRAM();
         }
 
-        m_totalActiveEntities = static_cast<int> (m_entities.size());
-
-        SIM_LOG (LM_INFO, QString ("Removed group %1. Current count: %2").arg (groupKey).arg (m_entities.size()));
+        SIM_LOG(LM_INFO, QString("Group '%1' removed. %2 satellites remaining.")
+                .arg(groupKey).arg(m_entities.size()));
     }
 
 
@@ -718,7 +749,7 @@ namespace SimCore
                 { // TYPE_DEAD_SLOT
                     
                     // Identify if this is a defensive launch or an incoming threat trajectory
-                    bool isInterceptor = (origin.length() < (Globe::globeRadius * 1.05f)); 
+                    bool isInterceptor = (origin.length() < (Globe::globeRadius * 1.5f)); 
                     float typeId = isInterceptor ? 3.0f : 4.0f; // 3.0 = Interceptor, 4.0 = Threat
                     
                     // Scale target velocities dynamically matching your configuration parameters
@@ -743,7 +774,7 @@ namespace SimCore
 
                     std::string threat_name = isInterceptor ? "THAAD" : "ICBM";
 
-                    SIM_LOG (LM_INFO, QString ("TACTICAL INJECTOR: Spawned Threat MSLinto SSBO Slot %2")
+                    SIM_LOG (LM_INFO, QString ("TACTICAL INJECTOR: Spawned %1 MSL into SSBO Slot %2")
                              .arg (threat_name)
                              .arg (i)
                             );
@@ -756,56 +787,122 @@ namespace SimCore
         }
     }
 
+    void EntityManager::clearSatelliteBufferZone()
+    {
+        if (!m_persistentBufferPtr) 
+            return;
+
+        const size_t satCeiling = static_cast<size_t> (::Config::getInstance().MAX_SAT_BUFF_SZ);
+        const size_t bytes = satCeiling * sizeof (DataObjects::GpuEntityData);
+
+        std::memset (m_persistentBufferPtr, 0, bytes);
+    }
+
     void EntityManager::initializeSatelliteBufferSlots()
     {
-        if (this->m_persistentBufferPtr != nullptr)
+        if (!m_persistentBufferPtr)
         {
-            size_t satBufferCeiling   = static_cast<size_t>(::Config::getInstance().MAX_SAT_BUFF_SZ);
-            size_t totalSimulationCap = static_cast<size_t>(::Config::getInstance().MAX_OBJECTS);
-            
-            // Tier 1: Flag the satellite zone cleanly
-            for (size_t i = 0; i < satBufferCeiling; ++i)
-            {
-                this->m_persistentBufferPtr[i].metadata.setW (1.0f); // 1.0 = TYPE_SGP4_SATELLITE
-                this->m_persistentBufferPtr[i].velocity.setW (1.0f); // Active status
-            }
-            
-            // =====================================================================
-            // PRODUCTION REPAIR: FIREWALL THE REMAINDER OF THE 500K BOUNDARY
-            // =====================================================================
-            // Zeroing out the rest of the array ensures the vertex shader sees typeId == 0.0f
-            // for unused slots and exits before running mathematical divisions on empty slots!
-            for (size_t i = satBufferCeiling; i < totalSimulationCap; ++i)
-            {
-                this->m_persistentBufferPtr[i].position = QVector4D (0.0f, 0.0f, 0.0f, 0.0f);
-                this->m_persistentBufferPtr[i].velocity = QVector4D (0.0f, 0.0f, 0.0f, 0.0f);
-                this->m_persistentBufferPtr[i].metadata = QVector4D (0.0f, 0.0f, 0.0f, 0.0f); // setW(0.0f) = TYPE_DEAD_SLOT
-            }
-            
-            SIM_LOG (LM_INFO, QString ("CATALOG INITIALIZATION SUCCESS: Sanitized 500,000 SSBO memory slots cleanly."));
+            SIM_LOG(LM_CRITICAL, "initializeSatelliteBufferSlots() - m_persistentBufferPtr is null!");
+            return;
         }
-        else
+
+        const size_t satCeiling = static_cast<size_t> (::Config::getInstance().MAX_SAT_BUFF_SZ);
+        const size_t totalSlots = static_cast<size_t> (::Config::getInstance().MAX_OBJECTS);
+
+        // Satellite zone
+        for (size_t i = 0; i < satCeiling; ++i)
         {
-            SIM_LOG (LM_CRITICAL, QString ("CATALOG INITIALIZATION FAILED: Bufer not instantiated."));
+            auto& slot = m_persistentBufferPtr[i];
+            slot.position = QVector4D (0.0f, 0.0f, 0.0f, 1.0f);
+            slot.velocity = QVector4D (0.0f, 0.0f, 0.0f, 1.0f);
+            slot.metadata = QVector4D (9999.0f, 1.0f, 10.0f, DataObjects::TYPE_SGP4_SATELLITE);
+            slot.padding  = QVector4D();
+        }
+
+        // Tactical zone (zero)
+        std::memset (m_persistentBufferPtr + satCeiling, 0, 
+                     (totalSlots - satCeiling) * sizeof (DataObjects::GpuEntityData)
+                    );
+
+        SIM_LOG(LM_INFO, QString ("SSBO zones re-initialized (%1 sat slots)").arg (satCeiling));
+    }
+
+    void EntityManager::synchronizeSatellitesToVRAM()
+    {
+        if (!m_persistentBufferPtr)
+            return;
+
+        ACE_GUARD (ACE_Thread_Mutex, mon, m_vectorLock);
+        clearSatelliteBufferZone();
+
+        const size_t maxSatSlots = static_cast<size_t> (::Config::getInstance().MAX_SAT_BUFF_SZ);
+        const size_t writeCount  = std::min(m_entities.size(), maxSatSlots);
+
+        for (size_t i = 0; i < writeCount; ++i)
+        {
+            BaseEntity* entity = m_entities[i];
+
+            if (!entity)
+            {
+                continue;
+            }
+
+            DataObjects::GpuEntityData payload{};
+
+            // Position
+            QVector3D pos = entity->getPosition();
+            payload.position = QVector4D (pos.x(), pos.y(), pos.z(), Globe::glScaleFactor);
+
+            // Velocity + status
+            QVector3D dir = entity->getVelocityDirection();
+            payload.velocity = QVector4D (dir.x(), dir.y(), dir.z(), entity->getSpeed());
+
+            // Metadata
+            payload.metadata.setX (entity->getLifespan());
+            payload.metadata.setY (entity->getMass());           // or getThrust()
+            payload.metadata.setZ (entity->getStateId());
+            payload.metadata.setW (DataObjects::TYPE_SGP4_SATELLITE);
+
+            m_persistentBufferPtr[i] = payload;   // atomic 64-byte write
         }
     }
 
-    void EntityManager::clearSatelliteBufferZone()
+    void EntityManager::resetAllSimulationState()
     {
-        if (this->m_persistentBufferPtr != nullptr)
-        {
-            size_t satBufferCeiling = static_cast<size_t> (::Config::getInstance().MAX_SAT_BUFF_SZ);
-            
-            // Scrub only your designated satellite catalog zone
-            for (size_t i = 0; i < satBufferCeiling; ++i)
-            {
-                // Setting the TYPE_ID to 0.0f activates the vertex shader's early-exit gate
-                this->m_persistentBufferPtr[i].position = QVector4D (0.0f, 0.0f, 0.0f, 0.0f);
-                this->m_persistentBufferPtr[i].velocity = QVector4D (0.0f, 0.0f, 0.0f, 0.0f);
-                this->m_persistentBufferPtr[i].metadata = QVector4D (0.0f, 0.0f, 0.0f, 0.0f); // metadata.w() = 0.0f
-            }
-            
-            SIM_LOG (LM_INFO, "VRAM SYSTEM SYNCHRONIZATION: Cleared satellite buffer zone to remove ghost tracks.");
-        }
+        ACE_GUARD(ACE_Thread_Mutex, mon, m_vectorLock);
+
+        // Clear all live entities
+        for (auto* e : m_entities)
+            delete e;
+
+        m_entities.clear();
+        m_activeIds.clear();
+
+        // Clear missiles
+        for (auto* m : m_missiles)
+            delete m;
+
+        m_missiles.clear();
+
+        m_totalActiveEntities = 0;
+    }
+
+    void EntityManager::fullRestartSimulation()
+    {
+ //       SIM_LOG (LM_INFO, "=== FULL SIMULATION RESTART INITIATED ===");
+
+        // 1. Graceful shutdown of all worker threads
+        stopSimulation();
+
+        // 2. Reset all state while threads are dead
+        resetAllSimulationState();
+
+        // 3. Clear any remaining GPU data (optional but clean)
+        if (m_persistentBufferPtr)
+            std::memset (m_persistentBufferPtr, 0,
+                         ::Config::getInstance().MAX_OBJECTS * sizeof(DataObjects::GpuEntityData)
+                        );
+
+ //       SIM_LOG (LM_INFO, "Simulation state fully reset.");
     }
 } // namespace SimCore

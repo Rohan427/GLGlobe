@@ -1,42 +1,20 @@
 #pragma once
 
-#ifndef BASENTITY_HXX
-#define BASENTITY_HXX
+#ifndef BASEENTITY_HXX
+#define BASEENTITY_HXX
 
 #ifndef ACE_MT_SAFE
 #define ACE_MT_SAFE 1
 #endif
 
 #include "Utility.hxx"
-#include <QFile>
-#include <QFileInfo>
-#include <QDir>
-#include <QTextStream> // Necessary for the line-by-line reading in fileReaderTask
-#include <QDateTime>    // For comparing current time to file age
+#include "DataObjects.hxx"
 #include <QObject>
-#include <iostream>
-#include <cstdlib>
-#include <QtMath>
-#include <QOpenGLVertexArrayObject>
-#include <QOpenGLFunctions_4_3_Core>
 #include <QVector3D>
 #include <QString>
-#include <QDateTime>
-#include <QThread>
-#include <ace/Thread_Mutex.h>
-#include "ace/RW_Thread_Mutex.h"
-#include <ace/Guard_T.h>
-#include <ace/Log_Msg.h>
-#include <atomic>
-#include "DataObjects.hxx"
 
-//#include "MainWindow.hxx"
-
-// SimCore/BaseEntity.hxx
 namespace SimCore
 {
-    static const quint64 MAX_SATELLITES=50000;
-
     class BaseEntity : public QObject
     {
         Q_OBJECT
@@ -44,14 +22,33 @@ namespace SimCore
         public:
             virtual ~BaseEntity() = default;
 
-            // Standard absolute time signature used strictly by your SGP4 Satellites
-            virtual void updatePhysics(qint64 msecs, float liveOffset) {}
+            // =====================================================================
+            // Physics Updates
+            // =====================================================================
+            virtual void updatePhysics (qint64 msecs, float liveOffset) {}     // Satellites (SGP4)
+            virtual void updatePhysics (float deltaTimeSec) {}                 // Missiles / tactical
 
-            // NEW OVERLOAD: Time-delta signature used strictly by your tactical Missiles
-            virtual void updatePhysics (float deltaTimeSec) {}
+            // =====================================================================
+            // Required Getters
+            // =====================================================================
             virtual QVector3D getPosition() const = 0;
-            virtual QString getLabel() const = 0;
+            virtual QString   getLabel() const = 0;
+
+            // =====================================================================
+            // GPU Metadata Getters (default safe implementations)
+            // =====================================================================
+            virtual float     getLifespan() const          { return 999999.0f; }   // Satellites live "forever"
+            virtual float     getThrust() const            { return 0.0f; }
+            virtual float     getSpeed() const             { return 0.0f; }
+            virtual float     getMass() const              { return 1.0f; }
+            virtual float     getStateId() const           { return DataObjects::STATE_BALLISTIC; } // or 10.0f
+
+            virtual QVector3D getVelocityDirection() const { return QVector3D(0.0f, 0.0f, 1.0f); }
+
+            // Optional: can be used for filtering / labels
+            virtual QString   getGroup() const             { return QString(); }
+            virtual QString   getNoradId() const           { return QString(); }
     };
 } // namespace SimCore
 
-#endif // BASENTITY_HXX
+#endif // BASEENTITY_HXX

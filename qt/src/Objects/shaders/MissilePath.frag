@@ -4,7 +4,7 @@
 layout (location = 0) in float vFade;
 
 // Fragment Uniform Register Spaces
-layout (location = 4) uniform vec4 missileColor; // e.g., Electric Blue (0.0, 0.8, 1.0, 1.0)
+layout (location = 7) uniform vec4 missileColor; // e.g., Electric Blue (0.0, 0.8, 1.0, 1.0)
 
 layout (location = 0) out vec4 fragColor;
 

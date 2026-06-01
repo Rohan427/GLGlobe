@@ -36,6 +36,8 @@ namespace SimCore
             // The persistent container array tracking live interceptor entities
             std::vector<Objects::GuidedMissile*> m_missiles; 
 
+            void resetAllSimulationState(); 
+
         public:
             static ACE_Thread_Mutex m_vectorLock; // Protects the vector itself
             static bool m_updatingEntities;
@@ -47,6 +49,8 @@ namespace SimCore
             DataObjects::PathVertex* m_persistentTrailPtr = nullptr; // Track inside your structures
 
             /************* Functions ******************/
+
+            void fullRestartSimulation(); 
 
             static EntityManager* instance();
 
@@ -117,10 +121,18 @@ namespace SimCore
             void injectGpuThreat (const QVector3D& origin, const QVector3D& target);
             void initializeSatelliteBufferSlots();
             void clearSatelliteBufferZone();
+            void synchronizeSatellitesToVRAM();
 
             Objects::GuidedMissile* getMissileAtIndex (int index)
             {
                 return m_missiles.at (index);
+            }
+
+            bool hasActiveGpuSimulationObjects() const
+            {
+                // Returns true if there are active missiles, or if your Celestrak 
+                // satellite catalog layers are physically loaded and running!
+                return (this->getActiveMissileCount() > 0) || (!this->m_entities.empty());
             }
 
         public slots: // Or just public:

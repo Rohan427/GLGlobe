@@ -6,11 +6,9 @@
 #include "BaseEntity.hxx"
 #include "Utility.hxx"
 #include "Globe.hxx"
-#include "BaseEntity.hxx"
 #include <SGP4.h>
 #include <Tle.h>
 #include <memory>
-#include <mutex>
 #include <atomic>
 
 namespace Space
@@ -18,44 +16,31 @@ namespace Space
     class Satellite : public SimCore::BaseEntity
     {
         public:
-            // Update constructor to accept the group key
-            Satellite (const QString& name, const std::string& tle1, const std::string& tle2, const QString& group);
+            Satellite(const QString& name, const std::string& tle1,
+                      const std::string& tle2, const QString& group);
 
-            ~Satellite()
-            {
-                m_propagator.reset();
-            }
+            ~Satellite() override;
 
-            
-            QString getGroup() const { return m_group; }
-
-            // From BaseEntity
-            void updatePhysics (qint64 msecs, float liveOffset) override;
+            // BaseEntity overrides
+            void updatePhysics(qint64 msecs, float liveOffset) override;
             QVector3D getPosition() const override;
+            QString getLabel() const override { return m_name; }
 
-            QString getLabel() const override
-            {
-                return m_name;
-            }
+            QString getGroup() const override { return m_group; }
+            QString getNoradId() const override { return m_noradId; }
+
+            // GPU metadata overrides
+            float getLifespan() const override { return 999999.0f; }   // Satellites don't expire
+            float getStateId() const override  { return DataObjects::STATE_BALLISTIC; }
+
+            // Real orbital velocity direction from SGP4
+            QVector3D getVelocityDirection() const override;
 
             void initSatellites();
 
-            static int getTleErrors()
-            {
-                return tleErrors;
-            }
+            static int getTleErrors() { return tleErrors; }
+            static void resetTleErrors();
 
-            static void resetTleErrors()
-            {
-                ACE_GUARD (ACE_Thread_Mutex, ace_mon, lock_);
-                tleErrors = 0;
-            }
-             
-            QString getNoradId() const
-            {
-                return m_noradId;
-            }
-            
             static ACE_Thread_Mutex lock_;
 
         private:
@@ -66,8 +51,9 @@ namespace Space
             mutable ACE_Thread_Mutex m_posLock;
             std::atomic<int> m_updateCount{0};
             QString m_group;
+
             static int tleErrors;
     };
-} // namespace SimCore::Space
+} // namespace Space
 
 #endif // SATELLITE_HXX

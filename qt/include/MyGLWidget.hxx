@@ -26,6 +26,7 @@
 #include <QFileInfo>
 #include <QtMath>
 #include <QFile>
+#include <QDir>
 #include <QFileInfo>
 #include <QTimer>
 
@@ -137,6 +138,8 @@ namespace SimCore
             void renderSatellitePoints_legacy (const QMatrix4x4& mvpMatrix); // Sats calculated on CPU
             void renderSatellitePoints (const QMatrix4x4& mvpMatrix); // Everything calcualted on GPU
             void renderMissileArcs (const QMatrix4x4& mvpMatrix);
+            void releaseSimulationSSBO();
+            void restartFullSimulation();
 
         public:
             // This constructor is required to use the widget in a layout
@@ -175,6 +178,7 @@ namespace SimCore
             void mousePressEvent (QMouseEvent *event) override;
             void keyPressEvent (QKeyEvent *event) override;
             void resizeGL (int w, int h) override;
+            void resizeEvent (QResizeEvent* event) override;
 
             // Helper to load and link single shaders
             bool initShader (QOpenGLShaderProgram* program, const QString& vPath, const QString& fPath);

@@ -10,6 +10,8 @@
 #include <QString>
 #include <QDateTime>
 #include <QImageReader>
+#include <ace/Thread_Mutex.h>
+#include <ace/Guard_T.h>
 #include <ace/Log_Msg.h>
 
 // Forward declare the proxy function inside the namespace

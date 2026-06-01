@@ -17,11 +17,11 @@ layout (std430, binding = 0) readonly buffer SimulationBlock
 // PRODUCTION REPAIR: EXPLICIT UNIFORM REGISTER BINDINGS
 // =========================================================================
 // Unified Hardcoded Uniform Locations matching Satellites.vert
-layout(location = 0) uniform mat4 mvp;
-layout(location = 3) uniform int tacticalStartSlot;
-layout(location = 4) uniform vec3 filterCenter;
-layout(location = 5) uniform float filterRadius;
-layout(location = 6) uniform bool filterEnabled;
+layout (location = 0) uniform mat4 mvp;
+layout (location = 3) uniform int tacticalStartSlot;
+layout (location = 4) uniform vec3 filterCenter;
+layout (location = 5) uniform float filterRadius;
+layout (location = 6) uniform bool filterEnabled;
 
 layout (location = 0) out float vFade;
 

@@ -1,127 +1,106 @@
 #include "Satellite.hxx"
 #include "MainWindow.hxx"
+#include "DataObjects.hxx"
 
-namespace Space 
+namespace Space
 {
     using namespace SimCore;
 
-    Satellite::Satellite (const QString& name, const std::string& tle1, const std::string& tle2, const QString& group) 
-        : m_name (name) 
+    ACE_Thread_Mutex Satellite::lock_;
+    int Satellite::tleErrors = 0;
+
+    Satellite::Satellite(const QString& name, const std::string& tle1,
+                         const std::string& tle2, const QString& group)
+        : m_name(name), m_group(group)
     {
-        libsgp4::Tle tle (name.toStdString(), tle1, tle2);
-        m_propagator = std::make_unique<libsgp4::SGP4> (tle);
-        m_group = group;
-        m_noradId = QString::fromStdString (tle1.substr (2, 5));
+        try
+        {
+            libsgp4::Tle tle(name.toStdString(), tle1, tle2);
+            m_propagator = std::make_unique<libsgp4::SGP4>(tle);
+            m_noradId = QString::fromStdString(tle1.substr(2, 5));
+        }
+        catch (...)
+        {
+            ++tleErrors;
+        }
     }
 
-    void Satellite::updatePhysics (qint64 msecs, float liveOffset)
+    Satellite::~Satellite() = default;
+
+    void Satellite::updatePhysics(qint64 msecs, float liveOffset)
     {
         if (!m_propagator)
-        {
-//            SIM_LOG (LM_CRITICAL, "No propagator");
-
             return;
-        }
 
-        //gravconsttype whichconst = wgs72; // Ensure this matches your TLE initialization
-        //double tkmper, mu, radiusearthkm, vkkmper, j2, j3, j4, j3oj2;
+        QDateTime qtTime = QDateTime::fromMSecsSinceEpoch(msecs, Qt::UTC);
+        int microsecs = qtTime.time().msec() * 1000;
 
-        //// This populates the exact parameters the library is using
-        //getgravconst(whichconst, tkmper, mu, radiusearthkm, vkkmper, j2, j3, j4, j3oj2);
-
-        // Convert msecs to SGP4 DateTime
-        QDateTime qtTime = QDateTime::fromMSecsSinceEpoch (msecs, Qt::UTC);
-        int millisecs = qtTime.time().msec(); 
-        int microsecs = millisecs * 1000;
-
-        libsgp4::DateTime dt (qtTime.date().year(), qtTime.date().month(), qtTime.date().day(),
-                              qtTime.time().hour(), qtTime.time().minute(), qtTime.time().second(),
-                              microsecs
-                             );
+        libsgp4::DateTime dt(qtTime.date().year(), qtTime.date().month(), qtTime.date().day(),
+                             qtTime.time().hour(), qtTime.time().minute(), qtTime.time().second(),
+                             microsecs);
 
         try
         {
-            libsgp4::Eci eci = m_propagator->FindPosition (dt);
+            libsgp4::Eci eci = m_propagator->FindPosition(dt);
             libsgp4::CoordGeodetic geo = eci.ToGeodetic();
 
-            // This is defined inside libsgp4 as kXKMPER (typically 6378.135)
             const double SGP4_EARTH_RADIUS = libsgp4::kXKMPER;
-
-            // Map the true physical altitude to your rendering engine's scale
-            // scaleFactor = (visual units per real-world kilometer)
             double scaleFactor = Globe::globeRadius / SGP4_EARTH_RADIUS;
-            float visualSatelliteRadius = Globe::globeRadius + ((float)geo.altitude * scaleFactor);
+            float visualRadius = Globe::globeRadius + (static_cast<float>(geo.altitude) * static_cast<float>(scaleFactor));
 
-            // float altMultiplier = (6371.0f + (float)geo.altitude) / 6371.0f;
-            //QVector3D newPos = Utility::latLonToXYZRad (liveOffset, geo.latitude, geo.longitude, Globe::globeRadius * altMultiplier);
+            QVector3D newPos = Utility::latLonToXYZRad(liveOffset, geo.latitude, geo.longitude, visualRadius);
 
-            QVector3D newPos = Utility::latLonToXYZRad (liveOffset, geo.latitude, geo.longitude, visualSatelliteRadius);
-
-            ACE_GUARD (ACE_Thread_Mutex, ace_mon, m_posLock);
+            ACE_GUARD(ACE_Thread_Mutex, ace_mon, m_posLock);
             m_currentPos = newPos;
-        } 
-        catch (...)
-        {
-        }
-
-
-        /* Possible code for calculation of LOS from a ground station
-
-        try
-        {
-            libsgp4::Eci eci = m_propagator->FindPosition (dt);
-            
-            // Calculate look angles from Honolulu to this satellite
-            libsgp4::CoordTopocentric look_angles = honolulu_station.GetLookAngle(eci);
-
-            // Convert elevation from radians to degrees
-            double elevation_deg = look_angles.elevation * (180.0 / M_PI);
-            double azimuth_deg   = look_angles.azimuth * (180.0 / M_PI);
-            double range_km      = look_angles.range;
-
-            if (elevation_deg >= 0.0) {
-                // THE SATELLITE IS VISIBLE!
-                // You have a guaranteed, geometrically accurate line-of-sight.
-            } else {
-                // The satellite is below Honolulu's horizon.
-            }
         }
         catch (...)
         {
-            // Handle SGP4 exceptions
+            // Silent fail - position stays at last known good
         }
-
-*/
     }
 
     QVector3D Satellite::getPosition() const
     {
-//        std::cout << "Satellite: x, y, z: " << m_currentPos.x() << ", " << m_currentPos.y() << ", " << m_currentPos.z() << std::endl; 
-        ACE_GUARD_RETURN (ACE_Thread_Mutex, ace_mon, m_posLock, QVector3D());
+        ACE_GUARD_RETURN(ACE_Thread_Mutex, ace_mon, m_posLock, QVector3D());
         return m_currentPos;
+    }
+
+    QVector3D Satellite::getVelocityDirection() const
+    {
+        if (!m_propagator)
+            return QVector3D(0.0f, 0.0f, 1.0f);
+
+        try
+        {
+            // Use current time (you can cache this if performance becomes an issue)
+            auto now = QDateTime::currentDateTimeUtc();
+            int microsecs = now.time().msec() * 1000;
+
+            libsgp4::DateTime dt(now.date().year(), now.date().month(), now.date().day(),
+                                 now.time().hour(), now.time().minute(), now.time().second(), microsecs);
+
+            libsgp4::Eci eci = m_propagator->FindPosition(dt);
+            libsgp4::Vector vel = eci.Velocity();        // libsgp4 provides this
+
+            QVector3D direction(vel.x, vel.y, vel.z);
+            float len = direction.length();
+            return (len > 0.001f) ? direction.normalized() : QVector3D(0.0f, 0.0f, 1.0f);
+        }
+        catch (...)
+        {
+            return QVector3D(0.0f, 0.0f, 1.0f);
+        }
     }
 
     void Satellite::initSatellites()
     {
-        // Use Raw String Literals R"(...)" to ensure no escape-character issues
-        std::string l1 = R"(1 25544U 98067A   26116.51782528  .00002182  00000-0  10000-3 0  9993)";
-        std::string l2 = R"(2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537)";
-/*
-        try
-        {
-            // 2. Create the Tle object
-            libsgp4::Tle tle ("ISS", l1, l2);
-
-            // 3. Instantiate the SGP4 propagator into your unique_ptr
-            // This is where m_issPropagator finally stops being null
-            m_Propagator = std::make_unique<libsgp4::SGP4> (tle);
-
-            MainWindow::instance()->logMessage ("ISS Propagator initialized successfully.");
-        }
-        catch (const std::exception& e)
-        {
-            MainWindow::instance()->logMessage (QString ("SGP4 Error: %1").arg (e.what()));
-        }
-*/
+        // Test / demo satellite (ISS) if needed
     }
+
+    void Satellite::resetTleErrors()
+    {
+        ACE_GUARD(ACE_Thread_Mutex, ace_mon, lock_);
+        tleErrors = 0;
+    }
+
 } // namespace Space
