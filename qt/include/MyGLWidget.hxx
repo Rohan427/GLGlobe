@@ -135,7 +135,6 @@ namespace SimCore
             void initCapitals (QString filename);
             QVector3D latLonToXYZ (float lat, float lon, float radius);
             bool allocateSimulationSSBO (int totalEntities);
-            void renderSatellitePoints_legacy (const QMatrix4x4& mvpMatrix); // Sats calculated on CPU
             void renderSatellitePoints (const QMatrix4x4& mvpMatrix); // Everything calcualted on GPU
             void renderMissileArcs (const QMatrix4x4& mvpMatrix);
             void releaseSimulationSSBO();
@@ -202,8 +201,8 @@ namespace SimCore
             // Generate a sphere
             void generateSphere (float radius, int sectors, int stacks);
 
-            // Inside the widget for executing compute shader
-            void runCompute();
+            void renderMissileHistoryPoints (const QMatrix4x4& mvp);
+//            void renderRangeRings();
 
         public slots:
             void resetView()

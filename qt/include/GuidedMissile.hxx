@@ -4,10 +4,9 @@
 #define GUIDEDMISSILE_HXX
 
 #include "BaseEntity.hxx"
-#include <QObject>
+#include "DataObjects.hxx"
 #include <QVector3D>
-#include <QVector4D>
-#include <cmath>
+#include <array>
 
 enum class TargetMode
 {
@@ -17,99 +16,81 @@ enum class TargetMode
 
 namespace Objects
 {
-    class GuidedMissile : public SimCore::BaseEntity
+class GuidedMissile : public SimCore::BaseEntity
+{
+    Q_OBJECT
+
+public:
+    GuidedMissile (int id, size_t ssboIndex, const QVector3D& origin, const QVector3D& target);
+
+    virtual ~GuidedMissile() = default;
+
+    virtual void updatePhysics (float deltaTimeSec) override;
+
+    virtual QVector3D getPosition() const override
     {
-        Q_OBJECT
+        return m_currentPos;
+    }
 
-        public:
-            GuidedMissile (int id, size_t ssboIndex, const QVector3D& origin, const QVector3D& target)
-                            : m_id (id), m_ssboIndex (ssboIndex),
-                              m_currentPos (origin),
-                              m_targetPos (target),
-                              m_active (true),
-                              m_trailTimer (0.0f)
-            {
-                QVector3D travelDirection = (target - origin).normalized();
+    virtual QString getLabel() const override
+    {
+        return QString ("MSL-%1").arg (m_id);
+    }
 
-                // PRODUCTION REPAIR: Fetch your speed limit parameter straight from memory
-                // This scales your Mach 27 step accurately across your 1.0 radius globe
-                float glUnitsPerSecond = ::Config::getInstance().MAX_ICBM_SPD;
+    // Missile-specific
+    int getId() const
+    {
+        return m_id;
+    }
 
-                // Apply your configured radius multiplier to protect geometry constraints
-                float scaledSpeed = glUnitsPerSecond * ::Config::getInstance().DEFAULT_RADIUS;
+    bool isActive() const
+    {
+        return m_active;
+    }
 
-                // Store the baseline step vector
-                m_velocity = travelDirection * scaledSpeed;
-            }
+    size_t getSsboIndex() const
+    {
+        return m_ssboIndex; 
+    }
 
-            virtual ~GuidedMissile() = default;
+    void setTargetMode (TargetMode mode)
+    {
+        m_mode = mode;
+    }
 
-            // OVERLOAD IMPLEMENTATION: Processes clean, frame-rate independent ballistics
-            virtual void updatePhysics (float deltaTimeSec) override
-            {
-                if (!m_active) return;
+    TargetMode getTargetMode() const
+    {
+        return m_mode;
+    }
 
-                // Advance your position cleanly relative to the actual ticking clock speed
-                m_currentPos += (m_velocity * deltaTimeSec);
-                
-                // Stretches your trail history by accumulating fractional time increments
-                m_trailTimer += deltaTimeSec;
+    // === NEW: Cheap Visual Trail ===
+    static constexpr int MAX_TRAIL_POINTS = 24;   // adjustable via config later
 
-                // Clamping threshold optimized for a 1.0 radius globe
-                if (m_currentPos.distanceToPoint (m_targetPos) < 0.0005f)
-                {
-                    m_active = false; 
-                }
-            }
+    void addTrailPoint (const QVector3D& pos);
 
-            virtual QVector3D getPosition() const override
-            {
-                return m_currentPos;
-            }
-            virtual QString getLabel() const override
-            {
-                return QString ("MSL-%1").arg (m_id);
-            }
+    int getTrailCount() const
+    { 
+        return m_trailCount;
+    }
 
-            // --- Missile Specific Command Interfaces ---
-            int getId() const
-            {
-                return m_id;
-            }
+    const QVector3D& getTrailPoint (int i) const;
 
-            bool isActive() const
-            {
-                return m_active;
-            }
+private:
+    int m_id;
+    size_t m_ssboIndex;
+    QVector3D m_currentPos;
+    QVector3D m_targetPos;
+    QVector3D m_velocity;
+    bool m_active = true;
+    TargetMode m_mode = TargetMode::ANTI_SATELLITE_STRIKE;
 
-            TargetMode getTargetMode() const
-            {
-                return m_mode;
-            }
+    // Cheap trail history (visual only)
+    std::array<QVector3D, MAX_TRAIL_POINTS> m_trail;
+    int m_trailHead = 0;
+    int m_trailCount = 0;
+    float m_trailTimer = 0.0f;        // for controlling update rate
+};
 
-            void setTargetMode (TargetMode mode)
-            {
-                m_mode = mode;
-            }
-
-            size_t getSsboIndex() const
-            {
-                return this->m_ssboIndex;
-            }
-            
-            // Updates the 64 trailing line coordinates inside your mapped VRAM buffer
-            void updateTrailGeometry (DataObjects::PathVertex* trailBufferHead, float deltaTimeSec);
-
-        private:
-            int m_id;
-            size_t m_ssboIndex; // Unique integer mapping this weapon to a 64-vertex line block
-            QVector3D m_currentPos;
-            QVector3D m_targetPos;
-            QVector3D m_velocity;
-            bool m_active;
-            TargetMode m_mode;
-            float m_trailTimer; // Tracks fractional time chunks
-    };
 } // namespace Objects
 
 #endif // GUIDEDMISSILE_HXX

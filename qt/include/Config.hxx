@@ -55,6 +55,9 @@ class Config : public configuration::Configuration
         float MAX_HYP_SPD;
         float MAX_THAAD_SPD;
         int MAX_SAT_BUFF_SZ;
+        int MAX_DEBRIS;
+        int MAX_MISSILE_POINTS;
+        int TRAIL_UPDATE_RATE;
 
         struct ConfigErr
         {
@@ -120,6 +123,9 @@ class Config : public configuration::Configuration
         float getMaxHypSpd();
         float getMaxThaadSpd();
         int getMaxSatBuffSz();
+        int getMaxDebris();
+        int getMaxTrailPts();
+        int getTrailUpdateRate();
 
         //bool isCurrent();
         //time_t getLastReadTime();

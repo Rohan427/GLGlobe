@@ -106,7 +106,7 @@ void main()
         {
             // STATE_BALLISTIC: True gravitational terminal re-entry curve
             // Real Newton gravity pull: a = -G * M / r^2
-            // Uses your dynamically passed uniform glGravity parameter
+            // Uses the dynamically passed uniform glGravity parameter
             vec3 gravityPull = -normalize (pos) * (glGravity / (distToCenter * distToCenter));
             
             // Apply the gravitational acceleration modification vector directly
@@ -115,7 +115,8 @@ void main()
         }
         
         // Target Impact Validation Check
-        if (distToCenter <= globeRadius) {
+        if (distToCenter <= globeRadius)
+        {
             entities[index].metadata.z = 30.0f; // Terminate entity state slot
             entities[index].metadata.w = 0.0f;  // Mark slot as DEAD/Recyclable
             pos = vec3 (0.0f);

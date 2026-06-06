@@ -265,8 +265,8 @@ namespace SimCore
         // ←←← ADD THIS GUARD ←←←
         if (!m_persistentBufferPtr || m_ssboHardwareId == 0)
         {
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            glClearColor(0.0f, 0.0f, 0.1f, 1.0f);
+            glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            glClearColor (0.0f, 0.0f, 0.1f, 1.0f);
             return;
         }
 
@@ -494,8 +494,8 @@ namespace SimCore
         // =============================================================================
         // NEW TEST CORE MILESTONE: DRAW ACTIVE BALLISTIC TRAJECTORIES
         // =============================================================================
-        // This safely invokes your new pre-compiled MissilePaths SPIR-V shader pair
-        renderMissileArcs (mvp);
+        // This safely invokes our new pre-compiled MissilePaths SPIR-V shader pair
+        renderMissileHistoryPoints (mvp);
 
         // FPS Logic
         static int frames = 0;
@@ -678,13 +678,6 @@ namespace SimCore
         SIM_LOG(LM_DEBUG, QString("ResizeGL: %1x%2  aspect=%.3f").arg(w).arg(h).arg(aspect));
     }
 
-    // Inside your widget for executing compute shader
-    void MyGLWidget::runCompute()
-    {
-    //            glUseProgram (computeShaderProgramID);
-    //            glDispatchCompute (groups_x, groups_y, groups_z);
-    //            glMemoryBarrier (GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-    }
 
     // Input Handlers
 
@@ -1339,32 +1332,32 @@ namespace SimCore
         // 1. SATELLITE SSBO (Binding 0)
         // =====================================================================
         ::glGenBuffers(1, &m_ssboHardwareId);
+
         if (m_ssboHardwareId == 0)
         {
             SIM_LOG(LM_CRITICAL, "Failed to generate SSBO ID");
             return false;
         }
 
-        ::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_ssboHardwareId);
+        ::glBindBuffer (GL_SHADER_STORAGE_BUFFER, m_ssboHardwareId);
 
-        const GLsizeiptr bufferSize = static_cast<GLsizeiptr>(totalEntities) * sizeof(DataObjects::GpuEntityData);
+        const GLsizeiptr bufferSize = static_cast<GLsizeiptr> (totalEntities) * sizeof (DataObjects::GpuEntityData);
         const GLbitfield storageFlags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | 
                                         GL_MAP_COHERENT_BIT | GL_DYNAMIC_STORAGE_BIT;
         const GLbitfield mapFlags     = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
 
-        ::glBufferStorage(GL_SHADER_STORAGE_BUFFER, bufferSize, nullptr, storageFlags);
+        ::glBufferStorage (GL_SHADER_STORAGE_BUFFER, bufferSize, nullptr, storageFlags);
 
         // Zero the entire buffer
-        ::glClearBufferData(GL_SHADER_STORAGE_BUFFER, GL_RGBA32F, GL_RGBA, GL_FLOAT, nullptr);
+        ::glClearBufferData (GL_SHADER_STORAGE_BUFFER, GL_RGBA32F, GL_RGBA, GL_FLOAT, nullptr);
 
-        m_persistentBufferPtr = reinterpret_cast<DataObjects::GpuEntityData*>(
+        m_persistentBufferPtr = reinterpret_cast<DataObjects::GpuEntityData*> (
                                     ::glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, bufferSize, mapFlags)
                                 );
 
         if (!m_persistentBufferPtr)
         {
-            SIM_LOG(LM_CRITICAL, QString("glMapBufferRange failed (error 0x%1)")
-                    .arg(::glGetError(), 0, 16));
+            SIM_LOG (LM_CRITICAL, QString("glMapBufferRange failed (error 0x%1)").arg (::glGetError(), 0, 16));
             releaseSimulationSSBO();
             return false;
         }
@@ -1374,48 +1367,17 @@ namespace SimCore
 
         // CRITICAL: Update EntityManager with fresh pointer
         if (m_entityManager)
-            m_entityManager->setGpuBufferPointer(m_persistentBufferPtr);
-
-        // =====================================================================
-        // 2. MISSILE TRAIL SSBO (Binding 1)
-        // =====================================================================
-        ::glGenBuffers(1, &m_trajectorySsboId);
-        if (m_trajectorySsboId == 0)
         {
-            SIM_LOG(LM_CRITICAL, "Failed to generate trajectory SSBO");
-            releaseSimulationSSBO();
-            return false;
+            m_entityManager->setGpuBufferPointer (m_persistentBufferPtr);
         }
 
-        ::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_trajectorySsboId);
-
-        const GLsizeiptr trailSize = static_cast<GLsizeiptr>(::Config::getInstance().MAX_MISSILES) * 64 
-                                     * sizeof(DataObjects::PathVertex);
-
-        ::glBufferStorage(GL_SHADER_STORAGE_BUFFER, trailSize, nullptr, storageFlags);
-
-        m_persistentTrailPtr = reinterpret_cast<DataObjects::PathVertex*>(
-                                   ::glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, trailSize, mapFlags)
-                               );
-
-        if (!m_persistentTrailPtr)
-        {
-            SIM_LOG(LM_CRITICAL, "Missile trail mapping failed");
-            releaseSimulationSSBO();
-            return false;
-        }
-
-        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_trajectorySsboId);
-        ::glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
-        if (m_entityManager)
-            m_entityManager->setGpuTrailPointer(m_persistentTrailPtr);
-
-        SIM_LOG(LM_INFO, QString("Persistent SSBOs allocated and mapped successfully (%1 entities)").arg(totalEntities));
+        SIM_LOG (LM_INFO, QString ("Persistent SSBOs allocated and mapped successfully (%1 entities)").arg(totalEntities));
 
         // Initialize buffer content
         if (m_entityManager)
+        {
             m_entityManager->initializeSatelliteBufferSlots();
+        }
 
         return true;
     }
@@ -1429,35 +1391,31 @@ namespace SimCore
         // =========================================================================
         // STEP 1: DISPATCH GPU COMPUTE PHYSICS
         // =========================================================================
-        if (this->setActiveShader("PhysicsEngine"))
+
+        if (this->setActiveShader ("PhysicsEngine"))
         {
-            int totalSimulationCap = ::Config::getInstance().MAX_OBJECTS;
+            m_program->bind();
+            
+            // 1. Compute your real-world Earth core gravity constant relative to your scale factor
+            // Real earth standard gravitational parameter (μ) = 398600.4418 km^3/s^2
+            double earthMu = 398600.4418;
+            
+            // Convert to your current GL spatial universe dimensions
+            // Accel changes by scaleFactor cubed because volume elements scale by r^3
+            float glGravityConstant = static_cast<float>(earthMu) * std::pow (Globe::glScaleFactor, 3.0f);
 
-            if (this->setActiveShader ("PhysicsEngine"))
-            {
-                m_program->bind();
-                
-                // 1. Compute your real-world Earth core gravity constant relative to your scale factor
-                // Real earth standard gravitational parameter (μ) = 398600.4418 km^3/s^2
-                double earthMu = 398600.4418;
-                
-                // Convert to your current GL spatial universe dimensions
-                // Accel changes by scaleFactor cubed because volume elements scale by r^3
-                float glGravityConstant = static_cast<float>(earthMu) * std::pow (Globe::glScaleFactor, 3.0f);
+            // 2. Inject parameters safely to your hardcoded locations
+            m_program->setUniformValue (0, this->m_masterDeltaTimeSec);   // location 0
+            m_program->setUniformValue (1, Globe::globeRadius);     // location 1
+            m_program->setUniformValue (2, glGravityConstant);      // location 2
 
-                // 2. Inject parameters safely to your hardcoded locations
-                m_program->setUniformValue (0, this->m_masterDeltaTimeSec);   // location 0
-                m_program->setUniformValue (1, Globe::globeRadius);     // location 1
-                m_program->setUniformValue (2, glGravityConstant);      // location 2
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
 
-                ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
+            int workGroupsX = (totalSimulationCap + 63) / 64;
+            ::glDispatchCompute (workGroupsX, 1, 1);
 
-                int workGroupsX = (totalSimulationCap + 63) / 64;
-                ::glDispatchCompute (workGroupsX, 1, 1);
-
-                ::glMemoryBarrier (GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
-                m_program->release();
-            }
+            ::glMemoryBarrier (GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
+            m_program->release();
         }
 
         // =========================================================================
@@ -1494,63 +1452,86 @@ namespace SimCore
         }
     }
 
-    void MyGLWidget::renderMissileArcs (const QMatrix4x4& mvpMatrix)
+
+    void MyGLWidget::renderMissileHistoryPoints (const QMatrix4x4& mvp)
     {
-        // 1. COMPUTE TOTAL AVAIALABLE WEAPON ALLOCATION SLOTS
-/*        int totalSimulationCap = ::Config::getInstance().MAX_OBJECTS;
-        int tacticalStartSlot  = ::Config::getInstance().MAX_SAT_BUFF_SZ;
-        
-        int totalMissileSlots = totalSimulationCap - tacticalStartSlot;
-
-        if (totalMissileSlots <= 0) return;
-
-        // 2. BIND PIPELINE INFRASTRUCTURE
-        if (this->setActiveShader ("MissilePaths"))
+        if (!m_entityManager)
         {
-            m_program->bind();
-            
-            // Pass uniforms directly to their explicit location indices
-            m_program->setUniformValue (0, mvpMatrix);              // layout(location = 0)
-            m_program->setUniformValue (4, 0.0f, 0.8f, 1.0f, 1.0f); // layout(location = 4) Electric Blue
-            m_program->setUniformValue (3, tacticalStartSlot);      // layout(location = 3)
+            return;
+        }
 
-            // =====================================================================
-            // UNIFIED FILTER DATA INJECTION
-            // =====================================================================
-            bool isFilterOn = m_entityManager->m_tracker->m_filterActive;
-            m_program->setUniformValue (6, isFilterOn); // layout(location = 6)
-            
-            if (isFilterOn)
+        int missileCount = m_entityManager->getActiveMissileCount();
+
+        if (missileCount == 0)
+        {
+            return;
+        }
+
+        if (!setActiveShader ("MissilePaths"))
+        {
+            SIM_LOG (LM_WARNING, "Failed to activate MissilePaths shader for trails");
+            return;
+        }
+
+        m_program->bind();
+        m_program->setUniformValue (0, mvp);
+
+        ::glEnable (GL_PROGRAM_POINT_SIZE);
+        ::glEnable (GL_BLEND);
+        ::glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        ::glDepthFunc (GL_LEQUAL);
+
+        // Collect ALL trail points into one buffer (very fast)
+        std::vector<QVector3D> allTrailPoints;
+        std::vector<float> allAlphas;        // We'll pass alpha via a second attribute later if needed
+
+        for (int i = 0; i < missileCount; ++i)
+        {
+            Objects::GuidedMissile* missile = m_entityManager->getMissileAtIndex(i);
+
+            if (!missile || !missile->isActive())
             {
-                float glDetectionRange = m_entityManager->m_tracker->m_detectionRange - Globe::globeRadius;
-                
-                // Inject to your layout locations 4 and 5 inside the vertex shader
-                m_program->setUniformValue (4, m_entityManager->m_tracker->m_filterAnchor); // location 4
-                m_program->setUniformValue (5, glDetectionRange);                           // location 5
+                continue;
             }
 
-            ::glEnable (GL_BLEND);
-            ::glBlendFunc (GL_SRC_ALPHA, GL_ONE); 
-            ::glDepthFunc (GL_LEQUAL);
-            ::glLineWidth (1.0f); 
+            int trailCount = missile->getTrailCount();
 
-            // Bind your primary integrated data block straight to global slot 0
-            ::glBindBufferBase (GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
-            ::glBindVertexArray (m_dummyVaoId);
+            if (trailCount < 2) continue;
 
-            // =====================================================================
-            // OPTIMIZED INSTANCED DRAW COMMAND (ZERO CPU STEPS)
-            // =====================================================================
-            // This tells the GPU to evaluate all allocated weapon slots in parallel.
-            // It bypasses the old driver bottleneck, keeping your startup speed unthrottled.
-            ::glDrawArraysInstanced (GL_LINE_STRIP, 0, 64, totalMissileSlots);
+            for (int p = 0; p < trailCount; ++p)
+            {
+                const QVector3D& pos = missile->getTrailPoint(p);
+                float alpha = 0.85f * (static_cast<float> (p + 1) / trailCount);
 
-            ::glBindVertexArray (0);
-            ::glDisable (GL_BLEND);
-            m_program->release();
+                allTrailPoints.push_back (pos);
+
+                // For now we'll set uniform per-draw, but we can improve this later
+                m_program->setUniformValue (7, 1.0f, 0.6f, 0.15f, alpha);
+                
+                // Draw single point using modern path
+                GLuint vao, vbo;
+                ::glGenVertexArrays (1, &vao);
+                ::glGenBuffers (1, &vbo);
+
+                ::glBindVertexArray (vao);
+                ::glBindBuffer (GL_ARRAY_BUFFER, vbo);
+                ::glBufferData (GL_ARRAY_BUFFER, sizeof (QVector3D), &pos, GL_STREAM_DRAW);
+
+                ::glEnableVertexAttribArray (0);
+                ::glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, sizeof (QVector3D), nullptr);
+
+                ::glDrawArrays (GL_POINTS, 0, 1);
+
+                ::glDeleteBuffers (1, &vbo);
+                ::glDeleteVertexArrays (1, &vao);
+            }
         }
-*/
+
+        ::glDisable (GL_BLEND);
+        ::glDisable (GL_PROGRAM_POINT_SIZE);
+        m_program->release();
     }
+
 
     void MyGLWidget::releaseSimulationSSBO()
     {
@@ -1560,7 +1541,6 @@ namespace SimCore
         if (m_entityManager)
         {
             m_entityManager->setGpuBufferPointer(nullptr);
-            m_entityManager->setGpuTrailPointer(nullptr);
         }
 
         // 2. Unmap + delete Satellite SSBO

@@ -1,32 +1,61 @@
 #include "GuidedMissile.hxx"
+#include "Config.hxx"
 
 namespace Objects
 {
-    void GuidedMissile::updateTrailGeometry (DataObjects::PathVertex* trailBufferHead, float deltaTimeSec)
+    GuidedMissile::GuidedMissile (int id, size_t ssboIndex, const QVector3D& origin, const QVector3D& target)
+        : m_id (id)
+        , m_ssboIndex (ssboIndex)
+        , m_currentPos (origin)
+        , m_targetPos (target)
     {
-        if (!trailBufferHead || !m_active) return;
+        QVector3D dir = (target - origin).normalized();
+        float speed = ::Config::getInstance().MAX_ICBM_SPD * ::Config::getInstance().DEFAULT_RADIUS;
+        m_velocity = dir * speed;
 
-        size_t bufferOffset = m_ssboIndex * 64;
+        // Seed the trail with starting position
+        addTrailPoint (origin);
+    }
 
-        // TARGET INTERVAL: Drop a vertex every 0.35 seconds to make the trail stretch 
-        // beautifully across thousands of real-world kilometers behind the threat
-        constexpr float TRAIL_DROP_INTERVAL = 0.35f; 
-
-        if (m_trailTimer >= TRAIL_DROP_INTERVAL)
+    void GuidedMissile::updatePhysics (float deltaTimeSec)
+    {
+        if (!m_active) 
         {
-            m_trailTimer = 0.0f; // Reset interval window
-
-            // Push older positions back down the pipeline allocation array
-            for (size_t i = 63; i > 0; --i)
-            {
-                trailBufferHead[bufferOffset + i] = trailBufferHead[bufferOffset + i - 1];
-                // Smoothly fade out alpha values down the trailing edge lines
-                trailBufferHead[bufferOffset + i].position.setW (static_cast<float>(63 - i) / 63.0f);
-            }
+            return;
         }
 
-        // CONTINUOUS INTERPOLATION: Always lock vertex 0 (the tip) to your live coordinate
-        // This stops the tail line from detaching or stuttering between interval drops
-        trailBufferHead[bufferOffset].position = QVector4D (m_currentPos.x(), m_currentPos.y(), m_currentPos.z(), 1.0f);
+        m_currentPos += m_velocity * deltaTimeSec;
+        m_trailTimer += deltaTimeSec;
+
+        // Update trail at a controlled rate (visual only)
+        if (m_trailTimer >= 0.033f)   // ~30 Hz instead of 12 Hz
+        {
+            addTrailPoint(m_currentPos);
+            m_trailTimer = 0.0f;
+        }
+
+        // Impact detection
+        if (m_currentPos.distanceToPoint (m_targetPos) < 0.001f)
+        {
+            m_active = false;
+        }
     }
+
+    void GuidedMissile::addTrailPoint (const QVector3D& pos)
+    {
+        m_trail[m_trailHead] = pos;
+        m_trailHead = (m_trailHead + 1) % MAX_TRAIL_POINTS;
+
+        if (m_trailCount < MAX_TRAIL_POINTS)
+        {
+            m_trailCount++;
+        }
+    }
+
+    const QVector3D& GuidedMissile::getTrailPoint (int i) const
+    {
+        // Safe wrap-around access
+        return m_trail[i % MAX_TRAIL_POINTS];
+    }
+
 } // namespace Objects

@@ -246,6 +246,26 @@ int Config::getMaxSatBuffSz()
     return MAX_SAT_BUFF_SZ;
 }
 
+int Config::getMaxDebris()
+{
+    MAX_DEBRIS = (int)getUint64 ("maxDebris");
+
+    return MAX_DEBRIS;
+}
+
+int Config::getMaxTrailPts()
+{
+    MAX_MISSILE_POINTS = (int)getUint64 ("missileTrailPoints");
+
+    return MAX_MISSILE_POINTS;
+}
+
+int Config::getTrailUpdateRate()
+{
+    TRAIL_UPDATE_RATE = (int)getUint64 ("trailUpdateRate");
+
+    return TRAIL_UPDATE_RATE;
+}
 
 
 
@@ -375,6 +395,9 @@ bool Config::update()
                     getMaxHypSpd();
                     getMaxThaadSpd();
                     getMaxSatBuffSz();
+                    getMaxDebris();
+                    getMaxTrailPts();
+                    getTrailUpdateRate();
 
                     std::time (&timestamp);
                 }

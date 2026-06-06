@@ -46,7 +46,6 @@ namespace SimCore
 
             // Persistent CPU-accessible pointer mapped directly to VRAM
             DataObjects::GpuEntityData* m_persistentBufferPtr = nullptr;
-            DataObjects::PathVertex* m_persistentTrailPtr = nullptr; // Track inside your structures
 
             /************* Functions ******************/
 
@@ -93,11 +92,6 @@ namespace SimCore
             void setGpuBufferPointer (DataObjects::GpuEntityData* ptr)
             {
                 this->m_persistentBufferPtr = ptr;
-            }
-
-            void setGpuTrailPointer (DataObjects::PathVertex* ptr)
-            {
-                this->m_persistentTrailPtr = ptr;
             }
 
             // Returns the exact size of the active guided weapons array

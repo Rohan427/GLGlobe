@@ -1,15 +1,16 @@
 #version 460 core
 
-// Input matched exactly by name and location from Vertex Shader
 layout (location = 0) in float vFade;
 
-// Fragment Uniform Register Spaces
-layout (location = 7) uniform vec4 missileColor; // e.g., Electric Blue (0.0, 0.8, 1.0, 1.0)
+layout (location = 7) uniform vec4 trailColor;
 
 layout (location = 0) out vec4 fragColor;
 
 void main()
 {
-    // Apply the alpha fade factor procedurally across the line segments
-    fragColor = vec4 (missileColor.rgb, missileColor.a * vFade);
+    vec2 circ = gl_PointCoord - vec2 (0.5);
+
+    if (dot(circ, circ) > 0.25) discard;   // Nice round points
+
+    fragColor = vec4 (trailColor.rgb, trailColor.a * vFade);
 }

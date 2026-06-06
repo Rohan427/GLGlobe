@@ -35,6 +35,7 @@ namespace Globe
             inline QMatrix4x4 modelMatrix;
             inline QMatrix4x4 viewMatrix;
             inline QMatrix4x4 projectMatrix;
+            inline QMatrix4x4 m_mvp;
             inline float g_perspective;
 
             // Shader program for compute tasks

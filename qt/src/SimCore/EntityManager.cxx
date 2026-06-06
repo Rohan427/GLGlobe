@@ -533,7 +533,7 @@ namespace SimCore
                 // WORKLOAD DIVISION 2: MISSILE ARC TRAJECTORIES (HYPERTHREADED SIBLINGS)
                 // =====================================================================
                 // Only threads 16 to 31 handle guided weapon paths and missile trail geometry
-                if (localThreadId >= halfPool && missileCount > 0 && this->m_persistentTrailPtr != nullptr)
+                if (localThreadId >= halfPool && missileCount > 0)
                 {
                     // Calculate a localized, zero-based indexing offset for the missile loops (0 to 15)
                     size_t missileThreadOffset = static_cast<size_t> (localThreadId - halfPool);
@@ -549,12 +549,6 @@ namespace SimCore
                             {
                                 // 1. Advance linear trajectory curves using CPU mathematical tracking
                                 missile->updatePhysics (frameDeltaSeconds);
-                                
-                                // 2. ZERO-COPY TRAIL STREAMING: Push points directly to VRAM binding slot 1
-                                if (this->m_persistentTrailPtr != nullptr)
-                                {
-                                    missile->updateTrailGeometry (this->m_persistentTrailPtr, frameDeltaSeconds);
-                                }
                             }
                         }
                     }
@@ -697,22 +691,6 @@ namespace SimCore
                 
                 m_missiles.push_back (threat);
 
-                // =========================================================================
-                // PRODUCTION TEST REPAIR: PRE-INITIALIZE PERSISTENT VRAM TRAIL DATA FIELDS
-                // =========================================================================
-                // Directly populate all 64 vertex layout blocks to force instant visibility on screen
-                if (this->m_persistentTrailPtr != nullptr)
-                {
-                    size_t bufferStartOffset = nextSsboSlot * 64;
-                    
-                    for (size_t i = 0; i < 64; ++i)
-                    {
-                        // Pre-fill the coordinates with the launch origin position vector
-                        this->m_persistentTrailPtr[bufferStartOffset + i].position = 
-                            QVector4D (launchOrigin.x(), launchOrigin.y(), launchOrigin.z(), 1.0f);
-                    }
-                }
-                
                 SIM_LOG (LM_INFO, QString ("TACTICAL INJECTOR: Spawned Threat MSL-%1 into SSBO Slot %2")
                          .arg (uniqueId)
                          .arg (nextSsboSlot)
@@ -733,59 +711,91 @@ namespace SimCore
         }
     }
 
+
     void EntityManager::injectGpuThreat (const QVector3D& origin, const QVector3D& target)
     {
         if (m_vectorLock.acquire_write() == 0)
         {
-            size_t totalSimulationCap = static_cast<size_t>(::Config::getInstance().MAX_OBJECTS);
-            
-            // Honor your strict catalog firewall boundary to protect your SGP4 satellite tracks
-            size_t tacticalStartSlot  = static_cast<size_t>(::Config::getInstance().MAX_SAT_BUFF_SZ);
+            const size_t maxMissiles = static_cast<size_t> (::Config::getInstance().MAX_MISSILES);
 
-            for (size_t i = tacticalStartSlot; i < totalSimulationCap; ++i)
+            // Honor the strict catalog firewall boundary to protect the SGP4 satellite tracks
+            size_t tacticalStartSlot  = static_cast<size_t> (::Config::getInstance().MAX_SAT_BUFF_SZ);
+
+            const size_t totalSlots = static_cast<size_t> (::Config::getInstance().MAX_OBJECTS);
+
+            if (m_missiles.size() < maxMissiles)
             {
-                // Locate an open, dead memory slot inside the persistent array tracking grid
-                if (this->m_persistentBufferPtr[i].metadata.w() == 0.0f)
-                { // TYPE_DEAD_SLOT
-                    
-                    // Identify if this is a defensive launch or an incoming threat trajectory
-                    bool isInterceptor = (origin.length() < (Globe::globeRadius * 1.5f)); 
-                    float typeId = isInterceptor ? 3.0f : 4.0f; // 3.0 = Interceptor, 4.0 = Threat
-                    
-                    // Scale target velocities dynamically matching your configuration parameters
-                    float targetMach = isInterceptor ? (::Config::getInstance().MAX_THAAD_SPD * 1.5f) : ::Config::getInstance().MAX_ICBM_SPD;
-                    float glUnitsPerSecond = targetMach * Globe::glScaleFactor;
+                // Find first available dead slot in tactical zone
+                for (size_t i = tacticalStartSlot; i < totalSlots; ++i)
+                {
+                    if (m_persistentBufferPtr[i].metadata.w() == 0.0f)   // Dead slot
+                    {
+                        bool isInterceptor = (origin.length() < (Globe::globeRadius * 1.5f));
+                        float typeId = isInterceptor ? 3.0f : 4.0f;
 
-                    // =====================================================================
-                    // VERIFIED ZERO-COPY VRAM CORES INJECTION
-                    // =====================================================================
-                    // Write the raw randomized origin position straight into the buffer slot!
-                    this->m_persistentBufferPtr[i].position = QVector4D (origin.x(), origin.y(), origin.z(), 1.0f);
-                    
-                    // Compute the explicit normalized directional trajectory path vector
-                    QVector3D travelDir = (target - origin).normalized();
-                    this->m_persistentBufferPtr[i].velocity = QVector4D (travelDir.x(), travelDir.y(), travelDir.z(), glUnitsPerSecond);
-                    
-                    // Initialize metadata variables
-                    this->m_persistentBufferPtr[i].metadata.setX (120.0f);                       // 120s flight clock
-                    this->m_persistentBufferPtr[i].metadata.setY (0.0f);                         // No thrust variations
-                    this->m_persistentBufferPtr[i].metadata.setZ (20.0f);                        // Jump straight to ballistic
-                    this->m_persistentBufferPtr[i].metadata.setW (typeId);                       // Explicit macro identifier
+                        float targetMach = isInterceptor ? 
+                                           (::Config::getInstance().MAX_THAAD_SPD * 1.5f) : 
+                                           ::Config::getInstance().MAX_ICBM_SPD;
 
-                    std::string threat_name = isInterceptor ? "THAAD" : "ICBM";
+                        float glUnitsPerSecond = targetMach * Globe::glScaleFactor;
 
-                    SIM_LOG (LM_INFO, QString ("TACTICAL INJECTOR: Spawned %1 MSL into SSBO Slot %2")
-                             .arg (threat_name)
-                             .arg (i)
-                            );
-                    
-                    m_vectorLock.release();
-                    return; // Escape immediately once memory slot configuration handshakes
+                        // === GPU-side injection ===
+                        m_persistentBufferPtr[i].position = QVector4D (origin.x(), origin.y(), origin.z(), 1.0f);
+                        QVector3D dir = (target - origin).normalized();
+                        m_persistentBufferPtr[i].velocity = QVector4D (dir.x(), dir.y(), dir.z(), glUnitsPerSecond);
+
+                        m_persistentBufferPtr[i].metadata.setX (120.0f);           // lifespan
+                        m_persistentBufferPtr[i].metadata.setY (0.0f);
+                        m_persistentBufferPtr[i].metadata.setZ (20.0f);            // ballistic state
+                        m_persistentBufferPtr[i].metadata.setW (typeId);
+
+                        // === CPU-side GuidedMissile object ===
+                        int uniqueId = static_cast<int> (m_missiles.size()) + 1000;
+                        Objects::GuidedMissile* missile = new Objects::GuidedMissile (uniqueId, i, origin, target);
+
+                        if (isInterceptor)
+                        {
+                            missile->setTargetMode (TargetMode::ANTI_SATELLITE_STRIKE);
+                        }
+
+                        if (missile)
+                        {
+                            // Seed a visible trail immediately
+                            for (int i = 1; i <= 15; ++i)
+                            {
+                                QVector3D pastPos = origin - (target - origin).normalized() * (i * 0.08f);
+                                missile->addTrailPoint (pastPos);
+                            }
+                        }
+
+                        m_missiles.push_back (missile);
+
+
+                        SIM_LOG (LM_INFO, QString ("TACTICAL INJECTOR: Spawned %1 MSL-%2 into SSBO Slot %3")
+                                 .arg (isInterceptor ? "THAAD" : "ICBM")
+                                 .arg (uniqueId)
+                                 .arg (i)
+                               );
+
+                        m_vectorLock.release();
+                        return;
+                    }
                 }
             }
-            m_vectorLock.release();
+            else
+            {
+                SIM_LOG (LM_WARNING, "Missile limit reached - dropping spawn");
+            }
         }
+        else
+        {
+            SIM_LOG (LM_WARNING, "injectGpuThreat: Failed to acquire lock");
+        }
+
+        SIM_LOG (LM_WARNING, "No available missile slots");
+        m_vectorLock.release();
     }
+
 
     void EntityManager::clearSatelliteBufferZone()
     {
