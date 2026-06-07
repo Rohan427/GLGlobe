@@ -625,6 +625,7 @@ namespace SimCore
         SIM_LOG (LM_INFO, QString ("Simulation Shutdown Finalized Successfully. All threads reaped."));
     }
 
+
     void EntityManager::handleSatelliteExplosion (size_t targetIndex, const QVector3D& impactPos)
     {
         // 1. Convert the parent satellite to a piece of kinetic debris instantly

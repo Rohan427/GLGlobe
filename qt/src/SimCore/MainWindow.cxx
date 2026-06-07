@@ -2,6 +2,7 @@
 #include "MainWindow.hxx"
 #include "EntityManager.hxx"
 #include "MyGLWidget.hxx"
+#include <QThread>
 
 
 namespace SimCore
@@ -257,11 +258,20 @@ namespace SimCore
 
     void MainWindow::closeEvent (QCloseEvent *event)
     {
-        qDebug() << "MainWindow close event triggered. Cleaning up simulation threads...";
+        ACE_DEBUG ((LM_INFO, ACE_TEXT ("[%T][%M][TID:%t] %s\n"), 
+                    "MainWindow close event triggered. Cleaning up simulation threads...")
+                  );
 
         // 1. Defensively chain pointer checks before calling stopSimulation()
         if (this->glViewport != nullptr)
         {
+            // Force proper OpenGL cleanup before shutdown
+            this->glViewport->makeCurrent();
+            this->glViewport->cleanupGL();        // We'll add/improve this below
+
+            // Optional: Give the driver a moment to settle
+            QThread::msleep (50);
+
             EntityManager* manager = this->glViewport->getEntityManager();
             
             if (manager != nullptr)
@@ -269,16 +279,23 @@ namespace SimCore
                 // This safely blocks the GUI thread for a few milliseconds 
                 // until all background workers wrap up and exit cleanly
                 manager->stopSimulation();
-                qDebug() << "Simulation threads successfully reaped.";
+
+                ACE_DEBUG ((LM_INFO, ACE_TEXT ("[%T][%M][TID:%t] %s\n"),
+                            "Simulation threads successfully reaped.")
+                          );
             }
             else
             {
-                qDebug() << "Warning: EntityManager instance was already null during close event.";
+                ACE_DEBUG ((LM_INFO, ACE_TEXT ("[%T][%M][TID:%t] %s\n"),
+                            "Warning: EntityManager instance was already null during close event.")
+                          );
             }
         }
         else
         {
-            qDebug() << "Warning: glViewport instance was null during close event.";
+            ACE_DEBUG ((LM_INFO, ACE_TEXT ("[%T][%M][TID:%t] %s\n"),
+                        "Warning: glViewport instance was null during close event.")
+                      );
         }
 
         // 2. Accept the event to let Qt destroy the window and its child widgets natively

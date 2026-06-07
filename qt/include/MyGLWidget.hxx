@@ -94,9 +94,6 @@ namespace SimCore
             GLuint m_ssboHardwareId = 0;
             DataObjects::GpuEntityData* m_persistentBufferPtr = nullptr;
 
-            GLuint m_trajectorySsboId = 0;
-            DataObjects::PathVertex* m_persistentTrailPtr = nullptr; // Track inside your structures
-
             // TLE objects
             std::unique_ptr<SGP4> m_issPropagator;
             QVector3D m_issPos;
@@ -130,6 +127,8 @@ namespace SimCore
 
             GLuint m_sensorVao;
 
+            bool m_hasCleanedUp = false;
+
             /*********************** Functions *******************/
 
             void initCapitals (QString filename);
@@ -155,6 +154,8 @@ namespace SimCore
                     m_entityManager->wait(); // Wait for threads to finish
                     delete m_entityManager;
                 }
+
+                cleanupGL();
             }
 
             EntityManager* getEntityManager()
@@ -163,6 +164,7 @@ namespace SimCore
             }
 
             void checkLocalCache (const QString& groupKey = "STARLINK");
+            void cleanupGL();
 
         protected:
             // TLE
@@ -202,7 +204,7 @@ namespace SimCore
             void generateSphere (float radius, int sectors, int stacks);
 
             void renderMissileHistoryPoints (const QMatrix4x4& mvp);
-//            void renderRangeRings();
+            void renderRangeRings();
 
         public slots:
             void resetView()

@@ -48,7 +48,7 @@ class Config : public configuration::Configuration
         QVector3D RANGE_RING_COLOR;
         float RANGE_RING_DELTA;
         unsigned int DEFAULT_THREAD_SLEEP = 1000; // Fallback for bad configuration files
-        unsigned int MAX_FPU_THREADS = 64;
+        unsigned int MAX_FPU_THREADS = 32;
         int MAX_OBJECTS = 500000; //Fallback for bad configuration files
         int MAX_MISSILES = 1000; //Fallback for bad configuration files
         float MAX_ICBM_SPD;

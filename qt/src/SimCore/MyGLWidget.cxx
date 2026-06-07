@@ -10,6 +10,8 @@ namespace SimCore
     {
         SIM_LOG (LM_INFO, "Initializing GL pipeline");
 
+        makeCurrent();
+
         // 1. EXTRACT THE ACTIVE RENDERING CONTEXT POINTER
         QOpenGLContext* currentCtx = QOpenGLContext::currentContext();
 
@@ -250,6 +252,17 @@ namespace SimCore
         m_entityManager->startSimulation (::Config::getInstance().MAX_FPU_THREADS);
 
         this->setFocusPolicy (Qt::StrongFocus);
+
+        ::glGetError(); // clear any old errors
+
+        // Connect to context destruction for proper cleanup
+        if (QOpenGLContext* ctx = context())
+        {
+            connect (ctx, &QOpenGLContext::aboutToBeDestroyed,
+                     this, &MyGLWidget::cleanupGL,
+                     Qt::DirectConnection
+                    );
+        }
     }
 
 
@@ -387,104 +400,14 @@ namespace SimCore
         m_program->release();
 
         /*************** Draw sensor rings (if enabled) *****************/
-
-        SIM_LOG (LM_DEBUG, "paintGL Initialize sensor range");
-        // Used for sensor filter
-        float glDetectionRange = m_entityManager->m_tracker->m_detectionRange - Globe::globeRadius;
-
-        // PULL THE METRIC POSITION DIRECTLY FROM THE CITY MARKER UNIFORM
-        QVector3D localFilterCenter = m_entityManager->m_tracker->m_filterAnchor;
-
-        // Calculate the true world position for the shader tracking uniform
-        QVector4D rotatedCenter4 = model * QVector4D (localFilterCenter, 1.0f);
-        QVector3D worldFilterCenter = rotatedCenter4.toVector3D();
-
         SIM_LOG (LM_DEBUG, "paintGL test if sensors are enabled");
 
-        // For range rings
         if (m_entityManager->m_tracker->m_filterActive)
         {
-            setActiveShader ("RangeRings");
-
-            // 2. Setup Translucent Alpha Blending States
-            glEnable (GL_BLEND);
-            glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-            // CRITICAL: Disable depth writing to prevent concentric nested 3D hulls 
-            // from clipping out or occluding smaller spheres inside them.
-            glDepthMask (GL_FALSE);
-
-            QMatrix4x4 invView = view.inverted();
-            QVector3D extractedCameraPos = QVector3D (invView (0, 3), invView (1, 3), invView (2, 3));
-
-            QVector3D ringColorVec = QVector3D(::Config::getInstance().RANGE_RING_COLOR.x(),
-                                               ::Config::getInstance().RANGE_RING_COLOR.y(),
-                                               ::Config::getInstance().RANGE_RING_COLOR.z()
-                                              );
-
-            // Convert your range spacing and max limits to matching fractional GL scales
-            float glRingDelta      = m_entityManager->m_tracker->m_RngRingDelta;
-
-            m_program->bind();
-            m_program->setUniformValue (4, view); // view
-            m_program->setUniformValue (8, projection); //projection
-            m_program->setUniformValue (13, extractedCameraPos); // Vector3D tracking your camera pos cameraWorldPos
-            m_program->setUniformValue (14, worldFilterCenter); // filterCenter
-            m_program->setUniformValue (15, ringColorVec); // rangeRingColor
-            m_program->setUniformValue (12, Globe::globeRadius); // globeRadius
-
-            m_vao.bind();
-            m_vbo.bind();
-            int strideBytes = 8 * sizeof (float);
-
-            // Map Location 0 -> Position Vector [X, Y, Z]
-            m_program->enableAttributeArray (0);
-            m_program->setAttributeBuffer (0, GL_FLOAT, 0, 3, strideBytes);
-
-            float currentRadius = glRingDelta;
-            int vertexCount = m_sphereVertices.size() / 8;
-
-            QMatrix4x4 localRingModel;
-
-            while (currentRadius < glDetectionRange)
-            {
-                // MATCH THE EARTH MESH TRANSFORMS EXACTLY
-                // Rings must rotate with axial tilt and spin because filterCenter is a fixed feature point
-                localRingModel = model;
-
-                // Translate in local model space BEFORE applying rotations, then scale
-                localRingModel.translate (localFilterCenter); 
-                localRingModel.scale (currentRadius); 
-
-                m_program->setUniformValue (0, localRingModel); // model
-
-                glDrawArrays (GL_TRIANGLES, 0, vertexCount);
-
-                currentRadius += glRingDelta;
-            }
-
-            // Always draw last ring
-            localRingModel = model;
-
-            // Translate in local model space BEFORE applying rotations, then scale
-            localRingModel.translate (localFilterCenter); 
-            localRingModel.scale (glDetectionRange); 
-
-            m_program->setUniformValue (0, localRingModel); // model
-
-            glDrawArrays (GL_TRIANGLES, 0, vertexCount);
-
-
-            // Restore standard pipeline rendering state configurations
-            glDisableVertexAttribArray (0);
-            glDisableVertexAttribArray (1);
-
-            m_vao.release();
-            m_vbo.release();
-
-            glDepthMask (GL_TRUE);
-            glDisable (GL_BLEND);
+            renderRangeRings();
         }
+
+        
 
         /*************** Draw satellites *****************/
         SIM_LOG (LM_DEBUG, "paintGL Begin satellite processing");
@@ -657,6 +580,103 @@ namespace SimCore
         SIM_LOG (LM_DEBUG, "paintGL End");
     } // END: MyGLWidget::paintGL()
 
+
+    
+    // For range rings
+    void MyGLWidget::renderRangeRings()
+    {
+        SIM_LOG (LM_DEBUG, "paintGL Initialize sensor range");
+        // Used for sensor filter
+        float glDetectionRange = m_entityManager->m_tracker->m_detectionRange - Globe::globeRadius;
+
+        // PULL THE METRIC POSITION DIRECTLY FROM THE CITY MARKER UNIFORM
+        QVector3D localFilterCenter = m_entityManager->m_tracker->m_filterAnchor;
+
+        // Calculate the true world position for the shader tracking uniform
+        QVector4D rotatedCenter4 = Globe::modelMatrix * QVector4D (localFilterCenter, 1.0f);
+        QVector3D worldFilterCenter = rotatedCenter4.toVector3D();
+
+        setActiveShader ("RangeRings");
+
+        // 2. Setup Translucent Alpha Blending States
+        ::glEnable (GL_BLEND);
+        ::glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        // CRITICAL: Disable depth writing to prevent concentric nested 3D hulls 
+        // from clipping out or occluding smaller spheres inside them.
+        ::glDepthMask (GL_FALSE);
+
+        QMatrix4x4 invView = Globe::viewMatrix.inverted();
+        QVector3D extractedCameraPos = QVector3D (invView (0, 3), invView (1, 3), invView (2, 3));
+
+        QVector3D ringColorVec = QVector3D(::Config::getInstance().RANGE_RING_COLOR.x(),
+                                           ::Config::getInstance().RANGE_RING_COLOR.y(),
+                                           ::Config::getInstance().RANGE_RING_COLOR.z()
+                                          );
+
+        // Convert your range spacing and max limits to matching fractional GL scales
+        float glRingDelta      = m_entityManager->m_tracker->m_RngRingDelta;
+
+        m_program->bind();
+        m_program->setUniformValue (4, Globe::viewMatrix); // view
+        m_program->setUniformValue (8, Globe::projectMatrix); //projection
+        m_program->setUniformValue (13, extractedCameraPos); // Vector3D tracking your camera pos cameraWorldPos
+        m_program->setUniformValue (14, worldFilterCenter); // filterCenter
+        m_program->setUniformValue (15, ringColorVec); // rangeRingColor
+        m_program->setUniformValue (12, Globe::globeRadius); // globeRadius
+
+        m_vao.bind();
+        m_vbo.bind();
+        int strideBytes = 8 * sizeof (float);
+
+        // Map Location 0 -> Position Vector [X, Y, Z]
+        m_program->enableAttributeArray (0);
+        m_program->setAttributeBuffer (0, GL_FLOAT, 0, 3, strideBytes);
+
+        float currentRadius = glRingDelta;
+        int vertexCount = m_sphereVertices.size() / 8;
+
+        QMatrix4x4 localRingModel;
+
+        while (currentRadius < glDetectionRange)
+        {
+            // MATCH THE EARTH MESH TRANSFORMS EXACTLY
+            // Rings must rotate with axial tilt and spin because filterCenter is a fixed feature point
+            localRingModel = Globe::modelMatrix;
+
+            // Translate in local model space BEFORE applying rotations, then scale
+            localRingModel.translate (localFilterCenter); 
+            localRingModel.scale (currentRadius); 
+
+            m_program->setUniformValue (0, localRingModel); // model
+
+            ::glDrawArrays (GL_TRIANGLES, 0, vertexCount);
+
+            currentRadius += glRingDelta;
+        }
+
+        // Always draw last ring
+        localRingModel = Globe::modelMatrix;
+
+        // Translate in local model space BEFORE applying rotations, then scale
+        localRingModel.translate (localFilterCenter); 
+        localRingModel.scale (glDetectionRange); 
+
+        m_program->setUniformValue (0, localRingModel); // model
+
+        ::glDrawArrays (GL_TRIANGLES, 0, vertexCount);
+
+
+        // Restore standard pipeline rendering state configurations
+        ::glDisableVertexAttribArray (0);
+        ::glDisableVertexAttribArray (1);
+
+        m_vao.release();
+        m_vbo.release();
+
+        ::glDepthMask (GL_TRUE);
+        ::glDisable (GL_BLEND);
+    }
 
 
     void MyGLWidget::resizeGL (int w, int h)
@@ -1174,7 +1194,7 @@ namespace SimCore
             ::glAttachShader (rawProgramId, fragShaderNum);
         }
         
-        ::glLinkProgram(rawProgramId);
+        ::glLinkProgram (rawProgramId);
 
         GLint linkStatus = 0;
         ::glGetProgramiv (rawProgramId, GL_LINK_STATUS, &linkStatus);
@@ -1540,40 +1560,28 @@ namespace SimCore
         // 1. Tell EntityManager to stop writing immediately
         if (m_entityManager)
         {
-            m_entityManager->setGpuBufferPointer(nullptr);
+            m_entityManager->setGpuBufferPointer (nullptr);
         }
 
         // 2. Unmap + delete Satellite SSBO
         if (m_persistentBufferPtr != nullptr)
         {
-            ::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_ssboHardwareId);
-            ::glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+            ::glBindBuffer (GL_SHADER_STORAGE_BUFFER, m_ssboHardwareId);
+            ::glUnmapBuffer (GL_SHADER_STORAGE_BUFFER);
             m_persistentBufferPtr = nullptr;
         }
 
         if (m_ssboHardwareId != 0)
         {
-            ::glDeleteBuffers(1, &m_ssboHardwareId);
+            ::glDeleteBuffers (1, &m_ssboHardwareId);
             m_ssboHardwareId = 0;
         }
 
-        // 3. Unmap + delete Missile Trail SSBO
-        if (m_persistentTrailPtr != nullptr)
-        {
-            ::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_trajectorySsboId);
-            ::glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
-            m_persistentTrailPtr = nullptr;
-        }
+        
 
-        if (m_trajectorySsboId != 0)
-        {
-            ::glDeleteBuffers(1, &m_trajectorySsboId);
-            m_trajectorySsboId = 0;
-        }
+        ::glBindBuffer (GL_SHADER_STORAGE_BUFFER, 0);
 
-        ::glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
-        SIM_LOG(LM_DEBUG, "SSBOs released successfully.");
+        SIM_LOG (LM_DEBUG, "SSBOs released successfully.");
     }
 
     void MyGLWidget::resizeEvent(QResizeEvent* event)
@@ -1610,11 +1618,51 @@ namespace SimCore
         if (m_entityManager)
         {
             // Pass a high number; the function will clamp based on hardware
-            m_entityManager->startSimulation(32);   
+            m_entityManager->startSimulation (::Config::getInstance().MAX_FPU_THREADS);   
         }
 
-        SIM_LOG(LM_INFO, "=== FULL SIMULATION RESTART COMPLETED SUCCESSFULLY ===");
+        SIM_LOG (LM_INFO, "=== FULL SIMULATION RESTART COMPLETED SUCCESSFULLY ===");
 
         this->update();   // Trigger repaint
+    }
+
+
+    void MyGLWidget::cleanupGL()
+    {
+        if (m_hasCleanedUp || !context() || !context()->isValid())
+            return;
+
+        makeCurrent();
+
+        m_hasCleanedUp = true;   // ← Set immediately
+
+        // Release shader programs
+        for (QOpenGLShaderProgram* program : Globe::m_shaders)
+        {
+            if (program)
+            {
+                program->release();
+                delete program;
+            }
+        }
+        Globe::m_shaders.clear();
+
+        // Main SSBO
+        if (m_ssboHardwareId != 0)
+        {
+            ::glDeleteBuffers(1, &m_ssboHardwareId);
+            m_ssboHardwareId = 0;
+        }
+
+        // Dummy VAO
+        if (m_dummyVaoId != 0)
+        {
+            ::glDeleteVertexArrays(1, &m_dummyVaoId);
+            m_dummyVaoId = 0;
+        }
+
+        doneCurrent();
+
+        SIM_LOG(LM_INFO, "cleanupGL() completed");
     }
 } // namspace SimCore
