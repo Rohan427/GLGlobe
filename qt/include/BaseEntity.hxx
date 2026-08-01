@@ -12,6 +12,7 @@
 #include <QObject>
 #include <QVector3D>
 #include <QString>
+#include "ObjectPool.hxx"
 
 namespace SimCore
 {
@@ -26,7 +27,7 @@ namespace SimCore
             // Physics Updates
             // =====================================================================
             virtual void updatePhysics (qint64 msecs, float liveOffset) {}     // Satellites (SGP4)
-            virtual void updatePhysics (float deltaTimeSec) {}                 // Missiles / tactical
+            virtual void updatePhysics (DataObjects::GpuEntityData missileData, float deltaTimeSec) {}                 // Missiles / tactical
 
             // =====================================================================
             // Required Getters
@@ -43,7 +44,7 @@ namespace SimCore
             virtual float     getMass() const              { return 1.0f; }
             virtual float     getStateId() const           { return DataObjects::STATE_BALLISTIC; } // or 10.0f
 
-            virtual QVector3D getVelocityDirection() const { return QVector3D(0.0f, 0.0f, 1.0f); }
+            virtual QVector3D getVelocityDirection() const { return QVector3D (0.0f, 0.0f, 1.0f); }
 
             // Optional: can be used for filtering / labels
             virtual QString   getGroup() const             { return QString(); }

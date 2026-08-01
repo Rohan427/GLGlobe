@@ -116,6 +116,7 @@ namespace SimCore
             void initializeSatelliteBufferSlots();
             void clearSatelliteBufferZone();
             void synchronizeSatellitesToVRAM();
+            std::vector<Objects::GuidedMissile*> snapshotActiveMissiles();
 
             Objects::GuidedMissile* getMissileAtIndex (int index)
             {

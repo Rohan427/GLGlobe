@@ -56,8 +56,9 @@ class Config : public configuration::Configuration
         float MAX_THAAD_SPD;
         int MAX_SAT_BUFF_SZ;
         int MAX_DEBRIS;
-        int MAX_MISSILE_POINTS;
+        int MAX_MISSILE_POINTS;  // Max missile trail points
         int TRAIL_UPDATE_RATE;
+        float SENS_UPDATE_RATE;
 
         struct ConfigErr
         {
@@ -126,6 +127,7 @@ class Config : public configuration::Configuration
         int getMaxDebris();
         int getMaxTrailPts();
         int getTrailUpdateRate();
+        float getSensUpdateRate();
 
         //bool isCurrent();
         //time_t getLastReadTime();

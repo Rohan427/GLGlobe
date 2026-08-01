@@ -76,6 +76,7 @@ namespace SimCore
         private:
             Q_OBJECT
 
+            int m_loopCounter = 0;
             // Critical for all simulation timing
             QElapsedTimer m_frameTimer;
             float m_masterDeltaTimeSec = 0.001f; // Class-scoped master time reference variable
@@ -204,6 +205,7 @@ namespace SimCore
             void generateSphere (float radius, int sectors, int stacks);
 
             void renderMissileHistoryPoints (const QMatrix4x4& mvp);
+            void renderMissileHistoryPoints_debug (const QMatrix4x4& mvp);
             void renderRangeRings();
 
         public slots:

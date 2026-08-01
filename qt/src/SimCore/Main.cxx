@@ -3,14 +3,79 @@
 #include <QOpenGLWidget>
 #include <QOpenGLFunctions_4_3_Core>
 #include "MainWindow.hxx"
+#include <ace/Signal.h>
+#include <execinfo.h>
+#include <cxxabi.h>
+#include <atomic>
 
 #define DEBUG false
+
+static std::atomic<bool> g_shutdownRequested{false};
+static std::atomic<int>  g_lastSignal{0};
+
+
+static void signalHandler (int sig)
+{
+    const char* sigName = "unknown";
+    switch (sig)
+    {
+        case SIGINT:  sigName = "SIGINT";  break;
+        case SIGTERM: sigName = "SIGTERM"; break;
+        case SIGHUP:  sigName = "SIGHUP";  break;
+        case SIGSEGV: sigName = "SIGSEGV"; break;
+        case SIGABRT: sigName = "SIGABRT"; break;
+        case SIGTSTP: sigName = "SIGTSTP"; break;
+        case SIGBUS: sigName = "SIGABRT"; break;
+        case SIGILL: sigName = "SIGBUS"; break;
+        case SIGFPE: sigName = "SIGFPE"; break;
+            // Add more as needed
+    }
+
+    ACE_DEBUG ((LM_CRITICAL, ACE_TEXT ("Received signal %s (%d) - shutting down...\n"), sigName, sig));
+
+    if (sig == SIGSEGV || sig == SIGABRT)
+    {
+        void* frames[64];
+        int n = ::backtrace (frames, 64);
+        char** symbols = ::backtrace_symbols (frames, n);
+
+        ACE_DEBUG ((LM_CRITICAL, ACE_TEXT("--- BACKTRACE (%d frames) ---\n"), n));
+
+        for (int i = 0; i < n; ++i)
+        {
+            ACE_DEBUG ((LM_CRITICAL, ACE_TEXT ("  [%d] %s\n"), i, symbols[i]));
+        }
+
+        ACE_DEBUG ((LM_CRITICAL, ACE_TEXT ("--- END BACKTRACE ---\n")));
+
+        ::free (symbols);
+
+        // Optional: let the default handler dump a core
+        ::signal (sig, SIG_DFL);
+        ::raise (sig);
+    }
+
+    g_lastSignal.store (sig, std::memory_order_relaxed);
+    g_shutdownRequested.store (true, std::memory_order_relaxed);
+}
 
 using namespace SimCore;
 
 //int main (int argc, char *argv[])
 int ACE_TMAIN (int argc, ACE_TCHAR *argv[])
 {
+    // Register signal handler
+    ACE_Sig_Action sa (signalHandler);
+    sa.register_action (SIGINT);
+    sa.register_action (SIGTERM);
+    sa.register_action (SIGHUP);
+    sa.register_action (SIGTSTP);
+    sa.register_action (SIGBUS);
+    sa.register_action (SIGILL);
+    sa.register_action (SIGFPE);
+    sa.register_action (SIGABRT);
+    sa.register_action (SIGSEGV);
+
     // Set ACE to show: Time | Severity | Thread ID | Message
     ACE_Log_Msg::instance()->open (argv[0], ACE_Log_Msg::STDERR); // | ACE_Log_Msg::LOGGER);
     ACE_Log_Msg::instance()->priority_mask (/*LM_DEBUG | */ LM_INFO | LM_ERROR | LM_CRITICAL, ACE_Log_Msg::PROCESS);

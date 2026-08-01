@@ -228,5 +228,6 @@ target_include_directories (LegacyGLApp PRIVATE
                             ${ACE_INCLUDE_DIR}
 )
 
+target_link_options (LegacyGLApp PRIVATE -rdynamic)
 
 add_custom_target (copy_assets ALL DEPENDS ${SHADER_DEST_FILES})

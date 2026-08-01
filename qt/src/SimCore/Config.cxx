@@ -267,6 +267,13 @@ int Config::getTrailUpdateRate()
     return TRAIL_UPDATE_RATE;
 }
 
+float Config::getSensUpdateRate()
+{
+    SENS_UPDATE_RATE = (float)getDouble ("sensUpdtRate");
+
+    return SENS_UPDATE_RATE;
+}
+
 
 
 
@@ -398,6 +405,7 @@ bool Config::update()
                     getMaxDebris();
                     getMaxTrailPts();
                     getTrailUpdateRate();
+                    getSensUpdateRate();
 
                     std::time (&timestamp);
                 }

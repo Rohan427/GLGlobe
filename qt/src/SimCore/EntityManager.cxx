@@ -487,7 +487,7 @@ namespace SimCore
             float frameDeltaSeconds = static_cast<float>(m_duration) / 1000000.0f;
 
 
-            SIM_LOG (LM_DEBUG, QString ("Aquire lock %1").arg (localThreadId));
+////            SIM_LOG (LM_DEBUG, QString ("Aquire lock %1").arg (localThreadId));
 
             // Use tryacquire() to prevent the "Mutex Storm" from blocking the GUI
             if (m_vectorLock.tryacquire() == 0)
@@ -505,7 +505,7 @@ namespace SimCore
                 // Only threads 1 to 15 handle raw satellite orbit computations
                 if (localThreadId < halfPool && satCount > 0 && this->m_persistentBufferPtr != nullptr)
                 {
-                    SIM_LOG (LM_DEBUG, QString ("Loop updatePhysics %1").arg (localThreadId));
+////                    SIM_LOG (LM_DEBUG, QString ("Loop updatePhysics %1").arg (localThreadId));
 
                     for (size_t i = static_cast<size_t>(localThreadId); i < satCount; i += static_cast<size_t>(halfPool))
                     {
@@ -548,7 +548,7 @@ namespace SimCore
                             if (missile && missile->isActive())
                             {
                                 // 1. Advance linear trajectory curves using CPU mathematical tracking
-                                missile->updatePhysics (frameDeltaSeconds);
+                                missile->updatePhysics (m_persistentBufferPtr[missile->getSsboIndex()], frameDeltaSeconds);
                             }
                         }
                     }
@@ -575,7 +575,9 @@ namespace SimCore
         }
 
         return 0;
-    }
+    } // END: svc()
+
+
 
     void EntityManager::stopSimulation()
     {
@@ -715,7 +717,7 @@ namespace SimCore
 
     void EntityManager::injectGpuThreat (const QVector3D& origin, const QVector3D& target)
     {
-        if (m_vectorLock.acquire_write() == 0)
+        if (m_vectorLock.acquire() == 0)
         {
             const size_t maxMissiles = static_cast<size_t> (::Config::getInstance().MAX_MISSILES);
 
@@ -753,24 +755,14 @@ namespace SimCore
                         // === CPU-side GuidedMissile object ===
                         int uniqueId = static_cast<int> (m_missiles.size()) + 1000;
                         Objects::GuidedMissile* missile = new Objects::GuidedMissile (uniqueId, i, origin, target);
+                        missile->updateVelocity (m_persistentBufferPtr[i].velocity);
 
                         if (isInterceptor)
                         {
                             missile->setTargetMode (TargetMode::ANTI_SATELLITE_STRIKE);
                         }
 
-                        if (missile)
-                        {
-                            // Seed a visible trail immediately
-                            for (int i = 1; i <= 15; ++i)
-                            {
-                                QVector3D pastPos = origin - (target - origin).normalized() * (i * 0.08f);
-                                missile->addTrailPoint (pastPos);
-                            }
-                        }
-
                         m_missiles.push_back (missile);
-
 
                         SIM_LOG (LM_INFO, QString ("TACTICAL INJECTOR: Spawned %1 MSL-%2 into SSBO Slot %3")
                                  .arg (isInterceptor ? "THAAD" : "ICBM")
@@ -795,7 +787,7 @@ namespace SimCore
 
         SIM_LOG (LM_WARNING, "No available missile slots");
         m_vectorLock.release();
-    }
+    } // END: injectGpuThreat (const QVector3D& origin, const QVector3D& target)
 
 
     void EntityManager::clearSatelliteBufferZone()
@@ -915,5 +907,27 @@ namespace SimCore
                         );
 
  //       SIM_LOG (LM_INFO, "Simulation state fully reset.");
+    }
+
+    std::vector<Objects::GuidedMissile*> EntityManager::snapshotActiveMissiles()
+    {
+        std::vector<Objects::GuidedMissile*> result;
+
+        if (m_vectorLock.tryacquire() == 0)
+        {
+            result.reserve (m_missiles.size());
+
+            for (auto* m : m_missiles)
+            {
+                if (m && m->isActive())
+                {
+                    result.push_back (m);
+                }
+            }
+
+            m_vectorLock.release();
+        }
+
+        return result;
     }
 } // namespace SimCore

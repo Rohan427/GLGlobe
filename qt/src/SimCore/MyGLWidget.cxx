@@ -418,7 +418,11 @@ namespace SimCore
         // NEW TEST CORE MILESTONE: DRAW ACTIVE BALLISTIC TRAJECTORIES
         // =============================================================================
         // This safely invokes our new pre-compiled MissilePaths SPIR-V shader pair
-        renderMissileHistoryPoints (mvp);
+
+        if (m_entityManager->getActiveMissileCount() > 0)
+        {
+            renderMissileHistoryPoints (mvp);
+        }
 
         // FPS Logic
         static int frames = 0;
@@ -1426,8 +1430,8 @@ namespace SimCore
 
             // 2. Inject parameters safely to your hardcoded locations
             m_program->setUniformValue (0, this->m_masterDeltaTimeSec);   // location 0
-            m_program->setUniformValue (1, Globe::globeRadius);     // location 1
-            m_program->setUniformValue (2, glGravityConstant);      // location 2
+            m_program->setUniformValue (1, Globe::globeRadius);           // location 1
+            m_program->setUniformValue (2, glGravityConstant);            // location 2
 
             ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
 
@@ -1444,8 +1448,8 @@ namespace SimCore
         if (this->setActiveShader ("Satellites"))
         {
             m_program->bind();
-            m_program->setUniformValue (0, mvpMatrix);                                            // location 0
-            m_program->setUniformValue (7, 1.0f, 0.0f, 1.0f, 1.0f);                        // location 7 (Magenta base)
+            m_program->setUniformValue (0, mvpMatrix);                                    // location 0
+            m_program->setUniformValue (7, 1.0f, 0.0f, 1.0f, 1.0f);                       // location 7 (Magenta base)
             m_program->setUniformValue (6, m_entityManager->m_tracker->m_filterActive);   // location 6
 
             if (m_entityManager->m_tracker->m_filterActive)
@@ -1475,82 +1479,131 @@ namespace SimCore
 
     void MyGLWidget::renderMissileHistoryPoints (const QMatrix4x4& mvp)
     {
+//        SIM_LOG (LM_INFO, "renderMissileHistoryPoints");
+
+        // Null pointer check
         if (!m_entityManager)
         {
             return;
         }
 
-        int missileCount = m_entityManager->getActiveMissileCount();
+        int missileCount = 0;
 
-        if (missileCount == 0)
+        // Collect ALL points from ALL active missiles
+        std::vector<QVector3D> allTrailPoints;
+
+        m_loopCounter++;
+
+//        SIM_LOG (LM_INFO, "renderMissileHistoryPoints() get lock");
+
+        if (EntityManager::m_vectorLock.tryacquire() == 0)
         {
+            missileCount = m_entityManager->getActiveMissileCount();
+
+            //SIM_LOG (LM_INFO, QString ("Missile Loop: %1, MAX_TRAIL_POINTS %2, Active missile count %3\n")
+            //         .arg (m_loopCounter)
+            //         .arg (::Config::getInstance().MAX_MISSILE_POINTS)
+            //         .arg (missileCount));
+
+            allTrailPoints.reserve (missileCount); // * ::Config::getInstance().MAX_MISSILE_POINTS);   // rough estimate
+
+            for (int i = 0; i < missileCount; ++i)
+            {
+                Objects::GuidedMissile* missile = m_entityManager->getMissileAtIndex (i);
+
+                int trailCount = missile->getTrailCount();
+
+                if (trailCount < 2 || !missile->isActive())
+                {
+                    continue;
+                }
+
+                // Log only the oldest and newest points
+                const QVector3D& oldest = missile->getTrailPoint (0);
+                const QVector3D& newest = missile->getTrailPoint (trailCount - 1);
+
+                //SIM_LOG (LM_INFO, QString ("Missile %1 | Oldest: (%2, %3, %4) | Newest: (%5, %6, %7) | Count: %8")
+                //         .arg (missile->getLabel())
+                //         .arg (oldest.x()).arg (oldest.y()).arg (oldest.z())
+                //         .arg (newest.x()).arg (newest.y()).arg (newest.z())
+                //         .arg (trailCount)
+                //        );
+
+                for (int p = 0; p < trailCount; ++p)
+                {
+                    const QVector3D& pos = missile->getTrailPoint (p);
+
+                    //SIM_LOG (LM_INFO, QString ("Trail point %1: (%2, %3, %4)").arg (p)
+                    //         .arg (pos.x()).arg (pos.y()).arg (pos.z())
+                    //        );
+
+                    allTrailPoints.push_back (pos);
+                }
+            }
+
+            EntityManager::m_vectorLock.release();
+        }
+        else
+        {
+//            SIM_LOG (LM_INFO, "renderMissileHistoryPoints() LOCK FAILED, returning");
             return;
         }
 
+        //SIM_LOG (LM_INFO, "================== END TRAIL LIST =================\n");
+
+        if (allTrailPoints.empty())
+        {
+//            SIM_LOG (LM_INFO, "renderMissileHistoryPoints() allTrailPoints buffer empty");
+            return;
+        }
+
+//        SIM_LOG (LM_INFO, ">>>>>>>>>>>>>>>>> Render Trails <<<<<<<<<<<<<<<<\n");
+
+//        SIM_LOG (LM_INFO, "renderMissileHistoryPoints() binding program");
+
         if (!setActiveShader ("MissilePaths"))
         {
-            SIM_LOG (LM_WARNING, "Failed to activate MissilePaths shader for trails");
+//            SIM_LOG (LM_WARNING, "Failed to activate MissilePaths shader for trails");
             return;
         }
 
         m_program->bind();
         m_program->setUniformValue (0, mvp);
+        m_program->setUniformValue (7, QVector4D (1.0f, 0.6f, 0.15f, 1.0f));  // Orange trail color
+
+//        SIM_LOG (LM_INFO, "+++++++++++++++++ RENDERING +++++++++++++++\n");
+
+        // Single VBO for all points (much faster)
+        GLuint vao = 0, vbo = 0;
+        ::glGenVertexArrays (1, &vao);
+        ::glGenBuffers (1, &vbo);
+
+        ::glBindVertexArray (vao);
+        ::glBindBuffer (GL_ARRAY_BUFFER, vbo);
+        ::glBufferData (GL_ARRAY_BUFFER, allTrailPoints.size() * sizeof (QVector3D),
+                        allTrailPoints.data(), GL_STREAM_DRAW);
+
+        ::glEnableVertexAttribArray (0);
+        ::glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, sizeof(QVector3D), nullptr);
 
         ::glEnable (GL_PROGRAM_POINT_SIZE);
         ::glEnable (GL_BLEND);
         ::glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         ::glDepthFunc (GL_LEQUAL);
 
-        // Collect ALL trail points into one buffer (very fast)
-        std::vector<QVector3D> allTrailPoints;
-        std::vector<float> allAlphas;        // We'll pass alpha via a second attribute later if needed
+        // One draw call for everything
+        ::glDrawArrays (GL_POINTS, 0, static_cast<GLsizei> (allTrailPoints.size()));
 
-        for (int i = 0; i < missileCount; ++i)
-        {
-            Objects::GuidedMissile* missile = m_entityManager->getMissileAtIndex(i);
-
-            if (!missile || !missile->isActive())
-            {
-                continue;
-            }
-
-            int trailCount = missile->getTrailCount();
-
-            if (trailCount < 2) continue;
-
-            for (int p = 0; p < trailCount; ++p)
-            {
-                const QVector3D& pos = missile->getTrailPoint(p);
-                float alpha = 0.85f * (static_cast<float> (p + 1) / trailCount);
-
-                allTrailPoints.push_back (pos);
-
-                // For now we'll set uniform per-draw, but we can improve this later
-                m_program->setUniformValue (7, 1.0f, 0.6f, 0.15f, alpha);
-                
-                // Draw single point using modern path
-                GLuint vao, vbo;
-                ::glGenVertexArrays (1, &vao);
-                ::glGenBuffers (1, &vbo);
-
-                ::glBindVertexArray (vao);
-                ::glBindBuffer (GL_ARRAY_BUFFER, vbo);
-                ::glBufferData (GL_ARRAY_BUFFER, sizeof (QVector3D), &pos, GL_STREAM_DRAW);
-
-                ::glEnableVertexAttribArray (0);
-                ::glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, sizeof (QVector3D), nullptr);
-
-                ::glDrawArrays (GL_POINTS, 0, 1);
-
-                ::glDeleteBuffers (1, &vbo);
-                ::glDeleteVertexArrays (1, &vao);
-            }
-        }
-
+        // Cleanup
         ::glDisable (GL_BLEND);
         ::glDisable (GL_PROGRAM_POINT_SIZE);
+
+        ::glDeleteBuffers (1, &vbo);
+        ::glDeleteVertexArrays (1, &vao);
         m_program->release();
-    }
+
+//        SIM_LOG (LM_INFO, "LEAVE renderMissileHistoryPoints()\n\n");
+    } // END: renderMissileHistoryPoints (const QMatrix4x4& mvp)
 
 
     void MyGLWidget::releaseSimulationSSBO()
@@ -1584,9 +1637,9 @@ namespace SimCore
         SIM_LOG (LM_DEBUG, "SSBOs released successfully.");
     }
 
-    void MyGLWidget::resizeEvent(QResizeEvent* event)
+    void MyGLWidget::resizeEvent (QResizeEvent* event)
     {
-        QOpenGLWidget::resizeEvent(event);
+        QOpenGLWidget::resizeEvent (event);
         makeCurrent();   // Extra protection during resize
     }
 
@@ -1594,25 +1647,29 @@ namespace SimCore
     {
         this->makeCurrent();
 
-        SIM_LOG(LM_INFO, "=== FULL SIMULATION RESTART INITIATED ===");
+        SIM_LOG (LM_INFO, "=== FULL SIMULATION RESTART INITIATED ===");
 
         // 1. Gracefully stop all SGP4 threads
         if (m_entityManager)
+        {
             m_entityManager->fullRestartSimulation();
+        }
 
         // 2. Release old GPU buffers (critical to avoid stale pointers)
         releaseSimulationSSBO();
 
         // 3. Re-allocate fresh persistent SSBOs
-        if (!allocateSimulationSSBO(::Config::getInstance().MAX_OBJECTS))
+        if (!allocateSimulationSSBO (::Config::getInstance().MAX_OBJECTS))
         {
-            SIM_LOG(LM_CRITICAL, "Failed to re-allocate SSBOs during full restart!");
+            SIM_LOG (LM_CRITICAL, "Failed to re-allocate SSBOs during full restart!");
             return;
         }
 
         // 4. Re-initialize buffer content
         if (m_entityManager)
+        {
             m_entityManager->initializeSatelliteBufferSlots();
+        }
 
         // 5. Restart simulation — let startSimulation() decide optimal thread count
         if (m_entityManager)
@@ -1657,12 +1714,12 @@ namespace SimCore
         // Dummy VAO
         if (m_dummyVaoId != 0)
         {
-            ::glDeleteVertexArrays(1, &m_dummyVaoId);
+            ::glDeleteVertexArrays (1, &m_dummyVaoId);
             m_dummyVaoId = 0;
         }
 
         doneCurrent();
 
-        SIM_LOG(LM_INFO, "cleanupGL() completed");
+        SIM_LOG (LM_INFO, "cleanupGL() completed");
     }
 } // namspace SimCore
