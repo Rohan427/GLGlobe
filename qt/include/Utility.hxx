@@ -13,6 +13,10 @@
 #include <ace/Thread_Mutex.h>
 #include <ace/Guard_T.h>
 #include <ace/Log_Msg.h>
+#include <atomic>
+
+inline std::atomic<bool> g_shutdownRequested;
+inline std::atomic<int>  g_lastSignal;
 
 // Forward declare the proxy function inside the namespace
 namespace SimCore
@@ -339,9 +343,9 @@ namespace SimCore
                 float theta = randomFloat (0.0f, 2.0f * M_PI);
                 float phi   = acos (randomFloat (-1.0f, 1.0f));
 
-                return QVector3D (sin(phi) * cos(theta),
-                                  sin(phi) * sin(theta),
-                                  cos(phi)
+                return QVector3D (sin (phi) * cos (theta),
+                                  sin (phi) * sin (theta),
+                                  cos (phi)
                                  );
             }
 

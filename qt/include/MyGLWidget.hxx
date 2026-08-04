@@ -37,6 +37,7 @@
 #include "Satellite.hxx"
 #include "CelesTrakSource.hxx"
 #include "FontManager.hxx"
+#include <atomic>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -76,7 +77,6 @@ namespace SimCore
         private:
             Q_OBJECT
 
-            int m_loopCounter = 0;
             // Critical for all simulation timing
             QElapsedTimer m_frameTimer;
             float m_masterDeltaTimeSec = 0.001f; // Class-scoped master time reference variable
@@ -94,6 +94,10 @@ namespace SimCore
 
             GLuint m_ssboHardwareId = 0;
             DataObjects::GpuEntityData* m_persistentBufferPtr = nullptr;
+            GLuint m_trailVao = 0;
+            GLuint m_trailVbo = 0;
+            size_t m_trailVboCapacityBytes = 0;
+            std::vector<QVector3D> m_trailPoints;
 
             // TLE objects
             std::unique_ptr<SGP4> m_issPropagator;
@@ -139,11 +143,13 @@ namespace SimCore
             void renderMissileArcs (const QMatrix4x4& mvpMatrix);
             void releaseSimulationSSBO();
             void restartFullSimulation();
+            void ensureTrailBuffer (size_t neededBytes);
 
         public:
             // This constructor is required to use the widget in a layout
             explicit MyGLWidget (QWidget* parent = nullptr) : QOpenGLWidget (parent) 
             {
+                m_trailPoints.reserve (::Config::getInstance().MAX_MISSILE_POINTS);
                 setFocusPolicy (Qt::StrongFocus);
             }
 
@@ -252,6 +258,16 @@ namespace SimCore
                 // Update existing events to emit this signal
                 void updateStatus()
                 {
+                    if (::g_shutdownRequested.exchange (false, std::memory_order_relaxed))
+                    {
+                        const int sig = ::g_lastSignal.load (std::memory_order_relaxed);
+                        SIM_LOG (LM_INFO, QString ("Signal %1 requested shutdown").arg (sig));
+
+                        // Safely close the top-level window from any thread
+                        QMetaObject::invokeMethod (this->window(), "close", Qt::QueuedConnection);
+                        return;
+                    }
+
                     m_currentStatusString = QString (
                                                      "ZOOM: %1\n"
                                                      "ROT:  %2, %3\n"

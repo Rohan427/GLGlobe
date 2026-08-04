@@ -50,5 +50,4 @@ class ObjectPool
         size_t m_capacity;
 };
 
-
 #endif // OBJECTPOOL_HXX

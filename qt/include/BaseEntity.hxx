@@ -26,8 +26,11 @@ namespace SimCore
             // =====================================================================
             // Physics Updates
             // =====================================================================
-            virtual void updatePhysics (qint64 msecs, float liveOffset) {}     // Satellites (SGP4)
-            virtual void updatePhysics (DataObjects::GpuEntityData missileData, float deltaTimeSec) {}                 // Missiles / tactical
+            // Satellites (SGP4)
+            virtual void updatePhysics (qint64 msecs, float liveOffset) {}
+
+            // Missiles / tactical
+            virtual void updatePhysics (DataObjects::GpuEntityData missileData, float deltaTimeSec, bool detected) {}
 
             // =====================================================================
             // Required Getters

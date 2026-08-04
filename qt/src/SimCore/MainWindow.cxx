@@ -3,6 +3,7 @@
 #include "EntityManager.hxx"
 #include "MyGLWidget.hxx"
 #include <QThread>
+#include <atomic>
 
 
 namespace SimCore

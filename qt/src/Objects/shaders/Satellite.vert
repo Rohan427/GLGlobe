@@ -9,7 +9,8 @@ struct GpuEntityData
 };
 
 // Map directly to global layout binding slot 0
-layout(std430, binding = 0) readonly buffer SimulationBlock {
+layout(std430, binding = 0) readonly buffer SimulationBlock
+{
     GpuEntityData entities[];
 };
 
@@ -43,7 +44,7 @@ void main()
     {
         // SAFETY GATE: If the position data collapses to the Earth core, discard instantly
         // This completely prevents division-by-zero crashes on hardware
-        if (length(currentPos) < 0.01f)
+        if (length (currentPos) < 0.01f)
         {
             gl_Position = vec4 (0.0f, 0.0f, 0.0f, 0.0f);
             return;
@@ -72,7 +73,6 @@ void main()
 
     float status = entities[gl_VertexID].velocity.w;
 
-        
     // Map colors and sizes procedurally based on your specific status markers
     if (typeId == 4.0f)
     {

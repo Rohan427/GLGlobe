@@ -278,8 +278,8 @@ namespace SimCore
         // ←←← ADD THIS GUARD ←←←
         if (!m_persistentBufferPtr || m_ssboHardwareId == 0)
         {
-            glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            glClearColor (0.0f, 0.0f, 0.1f, 1.0f);
+            ::glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            ::glClearColor (0.0f, 0.0f, 0.1f, 1.0f);
             return;
         }
 
@@ -307,10 +307,10 @@ namespace SimCore
         }
 
         /*************** Setup and draw the globe *****************/
-        glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glEnable (GL_DEPTH_TEST);
-        glDepthFunc (GL_LESS);
-        glEnable (GL_CULL_FACE);
+        ::glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        ::glEnable (GL_DEPTH_TEST);
+        ::glDepthFunc (GL_LESS);
+        ::glEnable (GL_CULL_FACE);
 
         setActiveShader ("BumpLights");
 
@@ -368,18 +368,18 @@ namespace SimCore
         m_program->setUniformValue (0, mvp);
 
         // Bind Day Texture to Unit 0
-        glActiveTexture (GL_TEXTURE0);
-        glBindTexture (GL_TEXTURE_2D, dayTextureID);
+        ::glActiveTexture (GL_TEXTURE0);
+        ::glBindTexture (GL_TEXTURE_2D, dayTextureID);
         m_program->setUniformValue (13, 0);
 
         // Bind Night Texture to Unit 1
-        glActiveTexture (GL_TEXTURE1);
-        glBindTexture (GL_TEXTURE_2D, nightTextureID);
+        ::glActiveTexture (GL_TEXTURE1);
+        ::glBindTexture (GL_TEXTURE_2D, nightTextureID);
         m_program->setUniformValue (14, 1);
 
         // Bind the Bump/Height Map
-        glActiveTexture (GL_TEXTURE2);
-        glBindTexture (GL_TEXTURE_2D, bumpTextureID);
+        ::glActiveTexture (GL_TEXTURE2);
+        ::glBindTexture (GL_TEXTURE_2D, bumpTextureID);
         m_program->setUniformValue (15, 2);
 
         // Drawing
@@ -394,8 +394,8 @@ namespace SimCore
         m_program->enableAttributeArray (2);
         m_program->setAttributeBuffer (2, GL_FLOAT, 5 * sizeof (float), 3, stride); // normal
 
-        glDrawArrays (GL_TRIANGLES, 0, m_sphereVertices.size() / 8);
-        glBindVertexArray (0);
+        ::glDrawArrays (GL_TRIANGLES, 0, m_sphereVertices.size() / 8);
+        ::glBindVertexArray (0);
 
         m_program->release();
 
@@ -458,17 +458,17 @@ namespace SimCore
                 m_program->bind();
                 m_program->setUniformValue (0, mvp); // mvp
                 
-                glEnable (GL_PROGRAM_POINT_SIZE); // Enables gl_PointSize from shader
-                glEnable (GL_BLEND);
-                glBlendFunc (GL_SRC_ALPHA, GL_ONE);
-                glBindVertexArray (m_cityVao);
+                ::glEnable (GL_PROGRAM_POINT_SIZE); // Enables gl_PointSize from shader
+                ::glEnable (GL_BLEND);
+                ::glBlendFunc (GL_SRC_ALPHA, GL_ONE);
+                ::glBindVertexArray (m_cityVao);
 
-                glDepthFunc (GL_LEQUAL); 
+                ::glDepthFunc (GL_LEQUAL); 
 
                 // Draw all cities in a single ultra-fast call
-                glDrawArrays (GL_POINTS, 0, Globe::m_cityCount);
-                glBindVertexArray (0);
-                glDisable (GL_BLEND);
+                ::glDrawArrays (GL_POINTS, 0, Globe::m_cityCount);
+                ::glBindVertexArray (0);
+                ::glDisable (GL_BLEND);
 
                 m_program->release();
             }
@@ -481,23 +481,23 @@ namespace SimCore
                 m_program->setUniformValue (0, mvp); //mvp
 
                 // Bind Day Texture to Unit 0
-                glActiveTexture (GL_TEXTURE0);
-                glBindTexture (GL_TEXTURE_2D, fontTexture);
+                ::glActiveTexture (GL_TEXTURE0);
+                ::glBindTexture (GL_TEXTURE_2D, fontTexture);
                 m_program->setUniformValue ("arialFont", 0);
 
-                glEnable (GL_BLEND);
-                glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                glDepthFunc (GL_LEQUAL); 
+                ::glEnable (GL_BLEND);
+                ::glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                ::glDepthFunc (GL_LEQUAL); 
 
-                glBindVertexArray (m_fontManager->m_labelVao);
+                ::glBindVertexArray (m_fontManager->m_labelVao);
 
-                glDrawArrays (GL_TRIANGLES, 0, m_fontManager->m_labelVertexCount);
+                ::glDrawArrays (GL_TRIANGLES, 0, m_fontManager->m_labelVertexCount);
 
-                glBindVertexArray (0);
+                ::glBindVertexArray (0);
             }
 
-            glDisable (GL_DEPTH_TEST);
-            glDisable (GL_CULL_FACE);
+            ::glDisable (GL_DEPTH_TEST);
+            ::glDisable (GL_CULL_FACE);
             QPainter painter (this);
 
             QFont font ("Arial", Globe::m_fontSize, QFont::Normal); // Specifically name a common font
@@ -748,7 +748,8 @@ namespace SimCore
             QVector3D targetLocation = m_entityManager->m_tracker->m_filterAnchor;
 
             // If no filter anchor is currently active, default target to the North Pole
-            if (!m_entityManager->m_tracker->m_filterActive) {
+            if (!m_entityManager->m_tracker->m_filterActive)
+            {
                 targetLocation = QVector3D (0.0f, 1.0f, 0.0f);
             }
 
@@ -809,6 +810,7 @@ namespace SimCore
         updateStatus();
     }
 
+
     void MyGLWidget::mouseMoveEvent (QMouseEvent *event)
     {
         float adaptiveSens = sensitivity * Globe::m_zoom; 
@@ -834,6 +836,7 @@ namespace SimCore
         m_lastMousePos = event->pos();
         updateStatus();
     }
+
 
     void MyGLWidget::mousePressEvent (QMouseEvent *event)
     {
@@ -1433,7 +1436,7 @@ namespace SimCore
             m_program->setUniformValue (1, Globe::globeRadius);           // location 1
             m_program->setUniformValue (2, glGravityConstant);            // location 2
 
-            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
+            ::glBindBufferBase (GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
 
             int workGroupsX = (totalSimulationCap + 63) / 64;
             ::glDispatchCompute (workGroupsX, 1, 1);
@@ -1460,8 +1463,9 @@ namespace SimCore
             }
 
             ::glEnable (GL_PROGRAM_POINT_SIZE); 
-            ::glEnable (GL_BLEND); 
-            ::glBlendFunc (GL_SRC_ALPHA, GL_ONE); 
+            ::glDisable (GL_BLEND); 
+            //::glBlendFunc (GL_SRC_ALPHA, GL_ONE);
+            ::glDepthMask (GL_TRUE);
             ::glDepthFunc (GL_LEQUAL);
 
             ::glBindBufferBase (GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
@@ -1471,7 +1475,6 @@ namespace SimCore
             ::glDrawArrays (GL_POINTS, 0, totalSimulationCap);
 
             ::glBindVertexArray (0);
-            ::glDisable (GL_BLEND);
             m_program->release();
         }
     }
@@ -1489,23 +1492,11 @@ namespace SimCore
 
         int missileCount = 0;
 
-        // Collect ALL points from ALL active missiles
-        std::vector<QVector3D> allTrailPoints;
-
-        m_loopCounter++;
-
-//        SIM_LOG (LM_INFO, "renderMissileHistoryPoints() get lock");
-
         if (EntityManager::m_vectorLock.tryacquire() == 0)
         {
+            m_trailPoints.clear();
             missileCount = m_entityManager->getActiveMissileCount();
-
-            //SIM_LOG (LM_INFO, QString ("Missile Loop: %1, MAX_TRAIL_POINTS %2, Active missile count %3\n")
-            //         .arg (m_loopCounter)
-            //         .arg (::Config::getInstance().MAX_MISSILE_POINTS)
-            //         .arg (missileCount));
-
-            allTrailPoints.reserve (missileCount); // * ::Config::getInstance().MAX_MISSILE_POINTS);   // rough estimate
+            m_trailPoints.reserve (missileCount); // * ::Config::getInstance().MAX_MISSILE_POINTS);   // rough estimate
 
             for (int i = 0; i < missileCount; ++i)
             {
@@ -1518,92 +1509,79 @@ namespace SimCore
                     continue;
                 }
 
-                // Log only the oldest and newest points
-                const QVector3D& oldest = missile->getTrailPoint (0);
-                const QVector3D& newest = missile->getTrailPoint (trailCount - 1);
-
-                //SIM_LOG (LM_INFO, QString ("Missile %1 | Oldest: (%2, %3, %4) | Newest: (%5, %6, %7) | Count: %8")
-                //         .arg (missile->getLabel())
-                //         .arg (oldest.x()).arg (oldest.y()).arg (oldest.z())
-                //         .arg (newest.x()).arg (newest.y()).arg (newest.z())
-                //         .arg (trailCount)
-                //        );
-
                 for (int p = 0; p < trailCount; ++p)
                 {
                     const QVector3D& pos = missile->getTrailPoint (p);
 
-                    //SIM_LOG (LM_INFO, QString ("Trail point %1: (%2, %3, %4)").arg (p)
-                    //         .arg (pos.x()).arg (pos.y()).arg (pos.z())
-                    //        );
-
-                    allTrailPoints.push_back (pos);
+                    m_trailPoints.push_back (pos);
                 }
             }
 
             EntityManager::m_vectorLock.release();
         }
-        else
+
+        if (m_trailPoints.empty())
         {
-//            SIM_LOG (LM_INFO, "renderMissileHistoryPoints() LOCK FAILED, returning");
             return;
         }
-
-        //SIM_LOG (LM_INFO, "================== END TRAIL LIST =================\n");
-
-        if (allTrailPoints.empty())
-        {
-//            SIM_LOG (LM_INFO, "renderMissileHistoryPoints() allTrailPoints buffer empty");
-            return;
-        }
-
-//        SIM_LOG (LM_INFO, ">>>>>>>>>>>>>>>>> Render Trails <<<<<<<<<<<<<<<<\n");
-
-//        SIM_LOG (LM_INFO, "renderMissileHistoryPoints() binding program");
 
         if (!setActiveShader ("MissilePaths"))
         {
-//            SIM_LOG (LM_WARNING, "Failed to activate MissilePaths shader for trails");
             return;
         }
 
         m_program->bind();
         m_program->setUniformValue (0, mvp);
-        m_program->setUniformValue (7, QVector4D (1.0f, 0.6f, 0.15f, 1.0f));  // Orange trail color
-
-//        SIM_LOG (LM_INFO, "+++++++++++++++++ RENDERING +++++++++++++++\n");
+        m_program->setUniformValue (7, QVector4D (1.0f, 0.6f, 0.15f, 0.85f));  // Orange trail color
 
         // Single VBO for all points (much faster)
-        GLuint vao = 0, vbo = 0;
-        ::glGenVertexArrays (1, &vao);
-        ::glGenBuffers (1, &vbo);
+        const size_t bytes = m_trailPoints.size() * sizeof (QVector3D);
+        ensureTrailBuffer (bytes);
 
-        ::glBindVertexArray (vao);
-        ::glBindBuffer (GL_ARRAY_BUFFER, vbo);
-        ::glBufferData (GL_ARRAY_BUFFER, allTrailPoints.size() * sizeof (QVector3D),
-                        allTrailPoints.data(), GL_STREAM_DRAW);
-
-        ::glEnableVertexAttribArray (0);
-        ::glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, sizeof(QVector3D), nullptr);
+        ::glBindVertexArray (m_trailVao);
+        ::glBindBuffer (GL_ARRAY_BUFFER, m_trailVbo);
+        ::glBufferSubData (GL_ARRAY_BUFFER, 0, bytes, m_trailPoints.data());
 
         ::glEnable (GL_PROGRAM_POINT_SIZE);
         ::glEnable (GL_BLEND);
         ::glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        ::glDepthFunc (GL_LEQUAL);
+        ::glDepthMask (GL_FALSE);
+        //::glDepthFunc (GL_LEQUAL);
 
-        // One draw call for everything
-        ::glDrawArrays (GL_POINTS, 0, static_cast<GLsizei> (allTrailPoints.size()));
+        ::glDrawArrays (GL_POINTS, 0, static_cast<GLsizei> (m_trailPoints.size()));
 
-        // Cleanup
         ::glDisable (GL_BLEND);
+        ::glDepthMask (GL_TRUE);
+        ::glDepthFunc (GL_LEQUAL);
         ::glDisable (GL_PROGRAM_POINT_SIZE);
+        ::glBindVertexArray (0);
 
-        ::glDeleteBuffers (1, &vbo);
-        ::glDeleteVertexArrays (1, &vao);
         m_program->release();
-
-//        SIM_LOG (LM_INFO, "LEAVE renderMissileHistoryPoints()\n\n");
     } // END: renderMissileHistoryPoints (const QMatrix4x4& mvp)
+
+
+    void MyGLWidget::ensureTrailBuffer (size_t neededBytes)
+    {
+        if (m_trailVao == 0)
+        {
+            ::glGenVertexArrays(1, &m_trailVao);
+            ::glGenBuffers (1, &m_trailVbo);
+
+            ::glBindVertexArray (m_trailVao);
+            ::glBindBuffer (GL_ARRAY_BUFFER, m_trailVbo);
+            ::glEnableVertexAttribArray (0);
+            ::glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, sizeof(QVector3D), nullptr);
+            ::glBindVertexArray (0);
+        }
+
+        if (neededBytes > m_trailVboCapacityBytes)
+        {
+            // Grow with headroom so we don’t reallocate every time count creeps up
+            m_trailVboCapacityBytes = neededBytes + neededBytes / 2;
+            ::glBindBuffer (GL_ARRAY_BUFFER, m_trailVbo);
+            ::glBufferData (GL_ARRAY_BUFFER, m_trailVboCapacityBytes, nullptr, GL_DYNAMIC_DRAW);
+        }
+    }
 
 
     void MyGLWidget::releaseSimulationSSBO()
@@ -1630,18 +1608,32 @@ namespace SimCore
             m_ssboHardwareId = 0;
         }
 
-        
+        if (m_trailVbo != 0)
+        {
+            ::glDeleteBuffers (1, &m_trailVbo);
+            m_trailVbo = 0;
+        }
+
+        if (m_trailVao != 0)
+        {
+            ::glDeleteVertexArrays (1, &m_trailVao);
+            m_trailVao = 0;
+        }
+
+        m_trailVboCapacityBytes = 0;
 
         ::glBindBuffer (GL_SHADER_STORAGE_BUFFER, 0);
 
         SIM_LOG (LM_DEBUG, "SSBOs released successfully.");
     }
 
+
     void MyGLWidget::resizeEvent (QResizeEvent* event)
     {
         QOpenGLWidget::resizeEvent (event);
         makeCurrent();   // Extra protection during resize
     }
+
 
     void MyGLWidget::restartFullSimulation()
     {

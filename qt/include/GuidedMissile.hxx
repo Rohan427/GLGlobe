@@ -16,85 +16,88 @@ enum class TargetMode
 
 namespace Objects
 {
-class GuidedMissile : public SimCore::BaseEntity
-{
-    Q_OBJECT
+    class GuidedMissile : public SimCore::BaseEntity
+    {
+        Q_OBJECT
 
-    public:
-        // === NEW: Cheap Visual Trail ===
-        static constexpr int MAX_TRAIL_POINTS = 2000;   // adjustable via config later
+        public:
+            // === NEW: Cheap Visual Trail ===
+            static constexpr int MAX_TRAIL_POINTS = 2000;   // adjustable via config later
 
-        // GuidedMissile.hxx
-        mutable ACE_Thread_Mutex m_trailLock;
+            // GuidedMissile.hxx
+            mutable ACE_Thread_Mutex m_trailLock;
 
-        GuidedMissile (int id, size_t ssboIndex, const QVector3D& origin, const QVector3D& target);
+            GuidedMissile (int id, size_t ssboIndex, const QVector3D& origin, const QVector3D& target);
 
-        virtual ~GuidedMissile() = default;
-        virtual void updatePhysics (DataObjects::GpuEntityData missileData, float deltaTimeSec) override;
-        void updateVelocity (QVector4D velVector);
+            virtual ~GuidedMissile() = default;
+            virtual void updatePhysics (DataObjects::GpuEntityData missileData, float deltaTimeSec, bool detected) override;
+            void updateVelocity (QVector4D velVector);
+            bool isInsideSensorVolume (const QVector3D& currentPos,
+                                       bool filterEnabled,
+                                       const QVector3D& filterCenter,
+                                       float filterRadius
+                                      ) const;
 
-        virtual QVector3D getPosition() const override
-        {
-            return m_currentPos;
-        }
+            const QVector3D& getTrailPoint (int i) const;
+            void deactivate();
+            void addTrailPoint (const QVector3D& pos);
 
-        virtual QString getLabel() const override
-        {
-            return QString ("MSL-%1").arg (m_id);
-        }
+            virtual QVector3D getPosition() const override
+            {
+                return m_currentPos;
+            }
 
-        // Missile-specific
-        int getId() const
-        {
-            return m_id;
-        }
+            virtual QString getLabel() const override
+            {
+                return QString ("MSL-%1").arg (m_id);
+            }
 
-        bool isActive() const
-        {
-            return m_active;
-        }
+            // Missile-specific
+            int getId() const
+            {
+                return m_id;
+            }
 
-        size_t getSsboIndex() const
-        {
-            return m_ssboIndex; 
-        }
+            bool isActive() const
+            {
+                return m_active;
+            }
 
-        void setTargetMode (TargetMode mode)
-        {
-            m_mode = mode;
-        }
+            size_t getSsboIndex() const
+            {
+                return m_ssboIndex; 
+            }
 
-        TargetMode getTargetMode() const
-        {
-            return m_mode;
-        }
+            void setTargetMode (TargetMode mode)
+            {
+                m_mode = mode;
+            }
 
-        void addTrailPoint (const QVector3D& pos);
+            TargetMode getTargetMode() const
+            {
+                return m_mode;
+            }
 
-        int getTrailCount() const
-        { 
-            return m_trailCount;
-        }
+            size_t getTrailCount() const
+            { 
+                return m_trailCount;
+            }
 
-        const QVector3D& getTrailPoint (int i) const;
-        void deactivate();
+        private:
+            int m_id;
+            size_t m_ssboIndex;
+            QVector3D m_currentPos;
+            QVector3D m_targetPos;
+            QVector3D m_velocity;
+            bool m_active = true;
+            TargetMode m_mode = TargetMode::ANTI_SATELLITE_STRIKE;
 
-    private:
-        int m_id;
-        size_t m_ssboIndex;
-        QVector3D m_currentPos;
-        QVector3D m_targetPos;
-        QVector3D m_velocity;
-        bool m_active = true;
-        TargetMode m_mode = TargetMode::ANTI_SATELLITE_STRIKE;
-
-        // Cheap trail history (visual only)
-        std::array<QVector3D, MAX_TRAIL_POINTS> m_trail{};
-        int m_trailHead = 0;
-        int m_trailCount = 0;
-        float m_trailTimer = 0.0f;        // for controlling update rate
+            // Cheap trail history (visual only)
+            std::array<QVector3D, MAX_TRAIL_POINTS> m_trail{};
+            size_t m_trailHead = 0;
+            size_t m_trailCount = 0;
+            float m_trailTimer = 0.0f;        // for controlling update rate
     };
-
 } // namespace Objects
 
 #endif // GUIDEDMISSILE_HXX

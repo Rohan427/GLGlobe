@@ -10,9 +10,6 @@
 
 #define DEBUG false
 
-static std::atomic<bool> g_shutdownRequested{false};
-static std::atomic<int>  g_lastSignal{0};
-
 
 static void signalHandler (int sig)
 {

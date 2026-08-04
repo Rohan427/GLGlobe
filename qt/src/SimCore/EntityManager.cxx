@@ -469,36 +469,55 @@ namespace SimCore
         // =========================================================================
         // 2. DATA PROCESSING PIPELINE
         // =========================================================================
-        auto lastTickTime = std::chrono::high_resolution_clock::now();
+
+        size_t currentSize;
+        size_t satCount;
+        size_t missileCount;
+
+        // Establish strict architectural division bounds based on your thread type assignment
+        int halfPool = m_numThreads / 2; // Split threshold (e.g., index 16)
+
+        float frameDeltaSeconds;
+
+        std::chrono::time_point<std::chrono::high_resolution_clock> now;
+
+        BaseEntity* entity;
+
+        QVector3D realPosition;
+
+        std::chrono::system_clock::duration duration;
+
+        qint64 msecs;
+
+        std::chrono::microseconds m_duration;
+
+        std::chrono::time_point<std::chrono::high_resolution_clock> lastTickTime = std::chrono::high_resolution_clock::now();
 
         while (!m_done)// && !this->msg_queue()->deactivated())
         {
-            auto now = std::chrono::high_resolution_clock::now();
+            now = std::chrono::high_resolution_clock::now();
 
             // SGP4 times
-            auto duration = now.time_since_epoch();
-            qint64 msecs = std::chrono::duration_cast<std::chrono::milliseconds> (duration).count();
+            duration = now.time_since_epoch();
+            msecs = std::chrono::duration_cast<std::chrono::milliseconds> (duration).count();
 
 
             // Missile times
-            auto m_duration = std::chrono::duration_cast<std::chrono::microseconds> (now - lastTickTime).count();
+            m_duration = std::chrono::duration_cast<std::chrono::microseconds> (now - lastTickTime);
             lastTickTime = now;
-            // Convert microseconds to fractional elapsed seconds parameter, passed to missile physicis engine
-            float frameDeltaSeconds = static_cast<float>(m_duration) / 1000000.0f;
 
+            // Convert microseconds to fractional elapsed seconds parameter, passed to missile physicis engine
+            frameDeltaSeconds = static_cast<float>(m_duration.count()) / 1000000.0f;
+
+            currentSize = m_entities.size();
+            satCount     = m_entities.size();
+            missileCount = m_missiles.size();
 
 ////            SIM_LOG (LM_DEBUG, QString ("Aquire lock %1").arg (localThreadId));
 
             // Use tryacquire() to prevent the "Mutex Storm" from blocking the GUI
-            if (m_vectorLock.tryacquire() == 0)
+            //if (m_vectorLock.tryacquire() == 0)
             {
-                size_t currentSize = m_entities.size();
-                size_t satCount     = m_entities.size();
-                size_t missileCount = m_missiles.size();
-
-                // Establish strict architectural division bounds based on your thread type assignment
-                int halfPool = m_numThreads / 2; // Split threshold (e.g., index 16)
-                
                 // =====================================================================
                 // WORKLOAD DIVISION 1: SGP4 SATELLITE PROPAGATION (PHYSICAL CORES)
                 // =====================================================================
@@ -507,25 +526,36 @@ namespace SimCore
                 {
 ////                    SIM_LOG (LM_DEBUG, QString ("Loop updatePhysics %1").arg (localThreadId));
 
-                    for (size_t i = static_cast<size_t>(localThreadId); i < satCount; i += static_cast<size_t>(halfPool))
+                    if (m_vectorLock.tryacquire() == 0)
                     {
-                        BaseEntity* entity = m_entities[i];
-
-                        if (!m_entities.empty() && entity)
+                        for (size_t i = static_cast<size_t>(localThreadId); i < satCount; i += static_cast<size_t>(halfPool))
                         {
-                            m_entities[i]->updatePhysics (msecs, Globe::m_liveOffset);
+                            entity = m_entities[i];
 
-                            // ZERO-COPY INJECTION: Stream calculations straight to the GPU pointer.
-                            // Because each thread manages separate indices, they write safely with ZERO lock contention.
-                            QVector3D realPosition = entity->getPosition();
-                            
-                            m_persistentBufferPtr[i].position = QVector4D (realPosition.x(),
-                                                                           realPosition.y(),
-                                                                           realPosition.z(),
-                                                                           1.0f
-                                                                          );
-                            this->m_persistentBufferPtr[i].velocity.setW (1.0f); // Status flag: Active Satellite
+                            if (!m_entities.empty() && entity)
+                            {
+                                m_entities[i]->updatePhysics (msecs, Globe::m_liveOffset);
+
+                                // ZERO-COPY INJECTION: Stream calculations straight to the GPU pointer.
+                                // Because each thread manages separate indices, they write safely with ZERO lock contention.
+                                realPosition = entity->getPosition();
+                                
+                                m_persistentBufferPtr[i].position = QVector4D (realPosition.x(),
+                                                                               realPosition.y(),
+                                                                               realPosition.z(),
+                                                                               1.0f
+                                                                              );
+                                this->m_persistentBufferPtr[i].velocity.setW (1.0f); // Status flag: Active Satellite
+                            }
                         }
+
+                        SIM_LOG (LM_DEBUG, QString ("Release SAT lock %1").arg (localThreadId));
+                        m_vectorLock.release();
+                    }
+                    else
+                    {
+                        // If the lock is busy, yield immediately to let the GUI or Parser in
+                        ACE_Thread::yield();
                     }
                 }
 
@@ -538,31 +568,48 @@ namespace SimCore
                     // Calculate a localized, zero-based indexing offset for the missile loops (0 to 15)
                     size_t missileThreadOffset = static_cast<size_t> (localThreadId - halfPool);
 
-                    // Stride explicitly by the width of the path predictor pool (top half of pool)
-                    for (size_t m = missileThreadOffset; m < missileCount; m += static_cast<size_t>(halfPool))
+                    if (m_vectorLock.tryacquire() == 0)
                     {
-                        if (m < m_missiles.size())
+                        // Stride explicitly by the width of the path predictor pool (top half of pool)
+                        for (size_t m = missileThreadOffset; m < missileCount; m += static_cast<size_t> (halfPool))
                         {
-                            Objects::GuidedMissile* missile = m_missiles[m];
-                            
-                            if (missile && missile->isActive())
+                            if (m < m_missiles.size())
                             {
-                                // 1. Advance linear trajectory curves using CPU mathematical tracking
-                                missile->updatePhysics (m_persistentBufferPtr[missile->getSsboIndex()], frameDeltaSeconds);
+                                Objects::GuidedMissile* missile = m_missiles[m];
+                                
+                                if (missile && missile->isActive())
+                                {
+                                    // 1. Advance linear trajectory curves using CPU mathematical tracking
+                                    missile->updatePhysics (m_persistentBufferPtr[missile->getSsboIndex()],
+                                                            frameDeltaSeconds, missile->isInsideSensorVolume (missile->getPosition(),
+                                                                                                              m_tracker->m_filterActive,
+                                                                                                              m_tracker->m_filterAnchor,
+                                                                                                              m_tracker->m_detectionRange - Globe::globeRadius
+                                                                                                             )
+                                                           );
+                                }
                             }
                         }
+
+                        SIM_LOG (LM_DEBUG, QString ("Release MIS lock %1").arg (localThreadId));
+                        m_vectorLock.release();
+                    }
+                    else
+                    {
+                        // If the lock is busy, yield immediately to let the GUI or Parser in
+                        ACE_Thread::yield();
                     }
                 }
 
-                SIM_LOG (LM_DEBUG, QString ("Release lock %1").arg (localThreadId));
+                //SIM_LOG (LM_DEBUG, QString ("Release lock %1").arg (localThreadId));
 
-                m_vectorLock.release();
+                //m_vectorLock.release();
             }
-            else
-            {
-                // If the lock is busy, yield immediately to let the GUI or Parser in
-                ACE_Thread::yield();
-            }
+            //else
+            //{
+            //    // If the lock is busy, yield immediately to let the GUI or Parser in
+            //    ACE_Thread::yield();
+            //}
 
             if (::Config::getInstance().THREAD_SLEEP_TIME > 0)
             {

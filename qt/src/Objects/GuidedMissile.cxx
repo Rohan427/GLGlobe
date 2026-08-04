@@ -9,13 +9,9 @@ namespace Objects
         , m_currentPos (origin)
         , m_targetPos (target)
     {
-//        SIM_LOG (LM_INFO, "GuidedMissile::GuidedMissile()");
         QVector3D dir = (target - origin).normalized();
         float speed = ::Config::getInstance().MAX_ICBM_SPD * ::Config::getInstance().DEFAULT_RADIUS;
         m_velocity = dir * speed;
-
-        // Seed the trail with starting position
-        addTrailPoint (origin);
     }
 
     void GuidedMissile::updateVelocity (QVector4D velVector)
@@ -25,9 +21,15 @@ namespace Objects
         m_velocity = dir.normalized() * speed;
     }
 
-    void GuidedMissile::updatePhysics (DataObjects::GpuEntityData missileData, float deltaTimeSec)
+    void GuidedMissile::updatePhysics (DataObjects::GpuEntityData missileData, float deltaTimeSec, bool detected)
     {
-        if (!m_active) 
+        if (missileData.metadata.w() == 0.0f)
+        {
+            deactivate();
+            return;
+        }
+
+        if (!m_active)
         {
             return;
         }
@@ -41,15 +43,63 @@ namespace Objects
         // Update trail at a controlled rate (visual only)
         if (m_trailTimer >= ::Config::getInstance().SENS_UPDATE_RATE)   // ~30 Hz instead of 12 Hz
         {
-            addTrailPoint (pos);
+            if (detected)
+            {
+                addTrailPoint (pos);
+            }
+
             m_trailTimer = 0.0f;
         }
 
+        //std::cout << "Missile " << m_id << " Target position: (" << m_targetPos.x() << ", "
+        //                                                         << m_targetPos.y() << ", "
+        //                                                         << m_targetPos.z() << ")" << std::endl;
+
+        //std::cout << "Missile " << m_id << " Missile position: (" << m_currentPos.x() << ", "
+        //                                                          << m_currentPos.y() << ", "
+        //                                                          << m_currentPos.z() << ")" << std::endl;
+
         // Impact detection
-        if (m_currentPos.distanceToPoint (m_targetPos) < 0.001f)
+        if (m_currentPos.distanceToPoint (m_targetPos) < 0.01f)
         {
             deactivate();
         }
+    }
+
+    bool GuidedMissile::isInsideSensorVolume (const QVector3D& currentPos,
+                                              bool filterEnabled,
+                                              const QVector3D& filterCenter,
+                                              float filterRadius
+                                             ) const
+    {
+        if (!filterEnabled)
+        {
+            return false;   // or false if “no filter → no trails”
+        }
+
+        // SAFETY: near origin / core
+        if (currentPos.length() < 0.01f)
+        {
+            return false;
+        }
+
+        // A. Horizontal max sensor range
+        if (QVector3D::dotProduct (currentPos - filterCenter, currentPos - filterCenter) > filterRadius * filterRadius)
+        {
+            return false;
+        // (or currentPos.distanceToPoint(filterCenter) > filterRadius)
+        }
+
+        // B. Horizon plane: object must be on the outward side of the tangent plane at filterCenter
+        const QVector3D toObject = currentPos - filterCenter;
+        const QVector3D planeNormal = filterCenter.normalized();  // “up” at sensor
+
+        if (QVector3D::dotProduct (toObject, planeNormal) < -0.0005f)
+        {
+            return false;
+        }
+
+        return true;
     }
 
     void GuidedMissile::addTrailPoint (const QVector3D& pos)
@@ -61,9 +111,6 @@ namespace Objects
             return;
         }
 
-        //SIM_LOG (LM_INFO, QString ("addTrailPoint m_id %1: (%2, %3, %4)").arg (m_id)
-        //         .arg (pos.x()).arg (pos.y()).arg (pos.z()));
-
         m_trail[m_trailHead] = pos;
         m_trailHead = (m_trailHead + 1) % ::Config::getInstance().MAX_MISSILE_POINTS;
 
@@ -71,36 +118,26 @@ namespace Objects
         {
             m_trailCount++;
         }
-
-//        SIM_LOG (LM_INFO, QString ("Trail Count %1").arg (m_trailCount));
     }
 
     const QVector3D& GuidedMissile::getTrailPoint (int i) const
     {
-//        SIM_LOG (LM_INFO, QString ("GuidedMissile::getTrailPoint(), m_id %1").arg (m_id));
         ACE_GUARD_RETURN (ACE_Thread_Mutex, mon, m_trailLock, m_currentPos);
 
-        if (m_trailCount == 0|| i < 0 || i >= static_cast<int>(m_trailCount))
+        if (m_trailCount == 0 || i < 0 || i >= static_cast<int> (m_trailCount))
         {
-//            SIM_LOG (LM_INFO, QString ("GuidedMissile::getTrailPoint() return m_currentPos, m_id %1").arg (m_id));
             return m_currentPos;   // fallback
         }
 
-        // Correct circular buffer indexing: oldest to newest
-        int realIndex = (m_trailHead - m_trailCount + i + MAX_TRAIL_POINTS) % MAX_TRAIL_POINTS;
-
-//        SIM_LOG (LM_INFO, QString ("GuidedMissile::getTrailPoint() return m_trail[%1], m_id %2").arg (realIndex).arg (m_id));
-        return m_trail[realIndex];
+        return m_trail[i];
     }
 
     void GuidedMissile::deactivate()
     {
-//        SIM_LOG (LM_INFO, QString ("GuidedMissile::deactivate() m_id %1").arg (m_id));
         ACE_GUARD (ACE_Thread_Mutex, mon, m_trailLock);
 
         m_active = false;
         m_trailCount = 0;
         m_trailHead = 0;
-        // array is automatically "cleared" by count = 0
     }
 } // namespace Objects

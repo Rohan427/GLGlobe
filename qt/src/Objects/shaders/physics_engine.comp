@@ -37,7 +37,7 @@ void main()
     vec3 vel = entities[index].velocity.xyz;
     float glUnitsPerSecond = entities[index].velocity.w;
 
-    float distToCenter = length(pos);
+    float distToCenter = length (pos);
 
     // Transition: Once the threat clears 1500km altitude, kick it to ballistic phase
     float targetAltitudeThreshold = globeRadius * 1.235f; 
