@@ -21,10 +21,6 @@ namespace Objects
         Q_OBJECT
 
         public:
-            // === NEW: Cheap Visual Trail ===
-            static constexpr int MAX_TRAIL_POINTS = 2000;   // adjustable via config later
-
-            // GuidedMissile.hxx
             mutable ACE_Thread_Mutex m_trailLock;
 
             GuidedMissile (int id, size_t ssboIndex, const QVector3D& origin, const QVector3D& target);
@@ -36,11 +32,12 @@ namespace Objects
                                        bool filterEnabled,
                                        const QVector3D& filterCenter,
                                        float filterRadius
-                                      ) const;
+                                      );
 
             const QVector3D& getTrailPoint (int i) const;
             void deactivate();
             void addTrailPoint (const QVector3D& pos);
+            void updateMissileFromGPU (DataObjects::GpuEntityData missileData);
 
             virtual QVector3D getPosition() const override
             {
@@ -91,9 +88,10 @@ namespace Objects
             QVector3D m_velocity;
             bool m_active = true;
             TargetMode m_mode = TargetMode::ANTI_SATELLITE_STRIKE;
+            bool m_detected = false;
 
             // Cheap trail history (visual only)
-            std::array<QVector3D, MAX_TRAIL_POINTS> m_trail{};
+            std::vector<QVector3D> m_trail{};
             size_t m_trailHead = 0;
             size_t m_trailCount = 0;
             float m_trailTimer = 0.0f;        // for controlling update rate

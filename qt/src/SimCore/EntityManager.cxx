@@ -15,6 +15,7 @@ namespace SimCore
         return s_instance;
     }
 
+
     void EntityManager::onDataReceived (const QString& data)
     {
         // Spawn a dedicated, detached thread just for the heavy parsing
@@ -24,6 +25,7 @@ namespace SimCore
                                               );
     }
     
+
     void EntityManager::processTleData (const QString& info, const QString& group)
     {
 //        SIM_LOG (LM_INFO, "EntityManager::processTleData");
@@ -49,6 +51,7 @@ namespace SimCore
                                                   );
         }
     }
+
 
     // Static helper for the dedicated parsing thread
     void* EntityManager::parsingTask (void* arg)
@@ -237,6 +240,7 @@ namespace SimCore
         return nullptr; // data (unique_ptr) is deleted here automatically
     }
 
+
     void EntityManager::startSimulation (int numThreads)
     {
         m_tracker = new Objects::Tracking();
@@ -307,6 +311,7 @@ namespace SimCore
         m_barrier->wait();
         SIM_LOG (LM_DEBUG, QString ("All %1 SGP4 Simulation threads pinned, scaled, and synchronized.").arg (m_numThreads));
     }
+
 
     void EntityManager::removeByGroup (const QString& groupKey)
     {
@@ -577,16 +582,27 @@ namespace SimCore
                             {
                                 Objects::GuidedMissile* missile = m_missiles[m];
                                 
-                                if (missile && missile->isActive())
+                                if (missile)
                                 {
-                                    // 1. Advance linear trajectory curves using CPU mathematical tracking
-                                    missile->updatePhysics (m_persistentBufferPtr[missile->getSsboIndex()],
-                                                            frameDeltaSeconds, missile->isInsideSensorVolume (missile->getPosition(),
-                                                                                                              m_tracker->m_filterActive,
-                                                                                                              m_tracker->m_filterAnchor,
-                                                                                                              m_tracker->m_detectionRange - Globe::globeRadius
-                                                                                                             )
-                                                           );
+                                    if (missile->isActive())
+                                    {
+                                        missile->updateMissileFromGPU (m_persistentBufferPtr[missile->getSsboIndex()]);
+                                        bool isDetected =
+                                            missile->isInsideSensorVolume (missile->getPosition(),
+                                                                           m_tracker->m_filterActive,
+                                                                           m_tracker->m_filterAnchor,
+                                                                           m_tracker->m_detectionRange -
+                                                                           Globe::globeRadius
+                                                                          );
+                                        // 1. Advance linear trajectory curves using CPU mathematical tracking
+                                        missile->updatePhysics (m_persistentBufferPtr[missile->getSsboIndex()],
+                                                                frameDeltaSeconds, isDetected
+                                                               );
+                                    }
+                                    else
+                                    {
+                                        missile->deactivate();
+                                    }
                                 }
                             }
                         }
@@ -600,16 +616,7 @@ namespace SimCore
                         ACE_Thread::yield();
                     }
                 }
-
-                //SIM_LOG (LM_DEBUG, QString ("Release lock %1").arg (localThreadId));
-
-                //m_vectorLock.release();
             }
-            //else
-            //{
-            //    // If the lock is busy, yield immediately to let the GUI or Parser in
-            //    ACE_Thread::yield();
-            //}
 
             if (::Config::getInstance().THREAD_SLEEP_TIME > 0)
             {
@@ -623,7 +630,6 @@ namespace SimCore
 
         return 0;
     } // END: svc()
-
 
 
     void EntityManager::stopSimulation()
@@ -706,6 +712,7 @@ namespace SimCore
         }
     }
 
+
     QVector3D EntityManager::CalculateExplosionVector()
     {
         // 1. Fetch an aligned, randomized 3D unit direction vector
@@ -720,6 +727,7 @@ namespace SimCore
         // Return the completed directional move velocity vector
         return blastDirection * blastVelocity;
     }
+
 
     void EntityManager::injectTestThreat (const QVector3D& launchOrigin, const QVector3D& impactTarget)
     {
@@ -848,6 +856,7 @@ namespace SimCore
         std::memset (m_persistentBufferPtr, 0, bytes);
     }
 
+
     void EntityManager::initializeSatelliteBufferSlots()
     {
         if (!m_persistentBufferPtr)
@@ -876,6 +885,7 @@ namespace SimCore
 
         SIM_LOG(LM_INFO, QString ("SSBO zones re-initialized (%1 sat slots)").arg (satCeiling));
     }
+
 
     void EntityManager::synchronizeSatellitesToVRAM()
     {
@@ -917,6 +927,7 @@ namespace SimCore
         }
     }
 
+
     void EntityManager::resetAllSimulationState()
     {
         ACE_GUARD(ACE_Thread_Mutex, mon, m_vectorLock);
@@ -937,6 +948,7 @@ namespace SimCore
         m_totalActiveEntities = 0;
     }
 
+
     void EntityManager::fullRestartSimulation()
     {
  //       SIM_LOG (LM_INFO, "=== FULL SIMULATION RESTART INITIATED ===");
@@ -955,6 +967,7 @@ namespace SimCore
 
  //       SIM_LOG (LM_INFO, "Simulation state fully reset.");
     }
+
 
     std::vector<Objects::GuidedMissile*> EntityManager::snapshotActiveMissiles()
     {

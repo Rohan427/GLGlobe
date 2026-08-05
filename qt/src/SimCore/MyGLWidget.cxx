@@ -80,6 +80,12 @@ namespace SimCore
         m_entityManager = new SimCore::EntityManager();
         m_entityManager->m_updatingEntities = false;
 
+        // Initialize specific global missile settings
+        Globe::m_trailCapacity = ::Config::getInstance().MAX_MISSILE_POINTS;
+        Globe::glTrailBufferCap = static_cast<size_t>(Config::getInstance().MAX_MISSILES) *
+                                  static_cast<size_t>(Config::getInstance().MAX_MISSILE_POINTS) *
+                                  sizeof(QVector3D);
+
         // Initialize entity SSBO
         if (!allocateSimulationSSBO (::Config::getInstance().MAX_OBJECTS))
         {
@@ -263,7 +269,7 @@ namespace SimCore
                      Qt::DirectConnection
                     );
         }
-    }
+    } // END: initializeGL()
 
 
 
@@ -1496,8 +1502,9 @@ namespace SimCore
         {
             m_trailPoints.clear();
             missileCount = m_entityManager->getActiveMissileCount();
-            m_trailPoints.reserve (missileCount); // * ::Config::getInstance().MAX_MISSILE_POINTS);   // rough estimate
+            m_trailPoints.reserve (missileCount);
 
+            // TODO:: Change to a do-while?
             for (int i = 0; i < missileCount; ++i)
             {
                 Objects::GuidedMissile* missile = m_entityManager->getMissileAtIndex (i);
@@ -1509,11 +1516,26 @@ namespace SimCore
                     continue;
                 }
 
-                for (int p = 0; p < trailCount; ++p)
+                //for (int p = 0; p < trailCount; ++p)
+                //{
+                //    const QVector3D& pos = missile->getTrailPoint (p);
+
+                //    m_trailPoints.push_back (pos);
+                //}
+
+                int p = 0;
+
+                do
                 {
                     const QVector3D& pos = missile->getTrailPoint (p);
-
                     m_trailPoints.push_back (pos);
+                    p++;
+                } while ((p < trailCount) && (m_trailPoints.size() < Globe::glTrailBufferCap));
+
+                if (p < (trailCount - 1))
+                {
+                    SIM_LOG (LM_WARNING, QString ("Trail render buffer full at missile %1\n").arg (missile->getId()));
+                    break;
                 }
             }
 
@@ -1532,7 +1554,7 @@ namespace SimCore
 
         m_program->bind();
         m_program->setUniformValue (0, mvp);
-        m_program->setUniformValue (7, QVector4D (1.0f, 0.6f, 0.15f, 0.85f));  // Orange trail color
+        m_program->setUniformValue (7, QVector4D (1.0f, 0.92f, 0.2f, 0.25f));  // Orange trail color
 
         // Single VBO for all points (much faster)
         const size_t bytes = m_trailPoints.size() * sizeof (QVector3D);
@@ -1576,8 +1598,8 @@ namespace SimCore
 
         if (neededBytes > m_trailVboCapacityBytes)
         {
-            // Grow with headroom so we don’t reallocate every time count creeps up
-            m_trailVboCapacityBytes = neededBytes + neededBytes / 2;
+            // Fixed max size based on confguration
+            m_trailVboCapacityBytes = Globe::glTrailBufferCap;
             ::glBindBuffer (GL_ARRAY_BUFFER, m_trailVbo);
             ::glBufferData (GL_ARRAY_BUFFER, m_trailVboCapacityBytes, nullptr, GL_DYNAMIC_DRAW);
         }

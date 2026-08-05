@@ -63,6 +63,10 @@ namespace Globe
             // to perspective and zoom changes
             inline float cityLabelHeight;
 
+            // Global missile variables
+            inline int m_trailCapacity;
+            inline int glTrailBufferCap;
+
             struct texSizes
             {
                 std::array<int, 2> huge = {16200, 8100};
