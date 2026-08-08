@@ -1,6 +1,11 @@
 #include "EntityManager.hxx"
 #include "Satellite.hxx"
 #include "MainWindow.hxx"
+#include <iomanip>
+
+// TODO: For debugging/testing
+#include <thread>
+#include <chrono>
 
 namespace SimCore
 {
@@ -366,7 +371,7 @@ namespace SimCore
         m_barrier->wait();
 
         // Secure a unique, bound-safe ID matching your active worker pool size
-        int localThreadId = m_threadIndexer.fetch_add(1) % m_numThreads;
+        int localThreadId = m_threadIndexer.fetch_add (1) % m_numThreads;
         ACE_thread_t nativeThreadHandle = ACE_OS::thr_self();
 
         size_t availableCores = m_hardwareCorePool.size();
@@ -511,8 +516,8 @@ namespace SimCore
             m_duration = std::chrono::duration_cast<std::chrono::microseconds> (now - lastTickTime);
             lastTickTime = now;
 
-            // Convert microseconds to fractional elapsed seconds parameter, passed to missile physicis engine
-            frameDeltaSeconds = static_cast<float>(m_duration.count()) / 1000000.0f;
+            // Convert microseconds to fractional elapsed seconds parameter, passed to missile physics engine
+            frameDeltaSeconds = static_cast<float> (m_duration.count()) / 1000000.0f;
 
             currentSize = m_entities.size();
             satCount     = m_entities.size();
@@ -533,7 +538,7 @@ namespace SimCore
 
                     if (m_vectorLock.tryacquire() == 0)
                     {
-                        for (size_t i = static_cast<size_t>(localThreadId); i < satCount; i += static_cast<size_t>(halfPool))
+                        for (size_t i = static_cast<size_t> (localThreadId); i < satCount; i += static_cast<size_t> (halfPool))
                         {
                             entity = m_entities[i];
 
@@ -586,7 +591,28 @@ namespace SimCore
                                 {
                                     if (missile->isActive())
                                     {
-                                        missile->updateMissileFromGPU (m_persistentBufferPtr[missile->getSsboIndex()]);
+                                        int i = missile->getSsboIndex();
+                                        std::cout << std::fixed    << std::setprecision (10)
+                                                  << "  Pos:   ("  << m_persistentBufferPtr[i].position.x()
+                                                  << ", "          << m_persistentBufferPtr[i].position.y()
+                                                  << ", "          << m_persistentBufferPtr[i].position.z()
+                                                  << ", "          << m_persistentBufferPtr[i].position.w()
+                                                  << ")\n"
+                                                  << "  Boost:  "  << m_persistentBufferPtr[i].metadata.y()
+                                                  << "\n"
+                                                  << "  Vel:   ("  << m_persistentBufferPtr[i].velocity.x()
+                                                  << ", "          << m_persistentBufferPtr[i].velocity.y()
+                                                  << ", "          << m_persistentBufferPtr[i].velocity.z()
+                                                  << ", "          << m_persistentBufferPtr[i].velocity.w()
+                                                  << ")\n"
+                                                  << "  Boost t: " << m_persistentBufferPtr[i].tactical.x()
+                                                  << "\n"
+                                                  << "  Max Spd: " << m_persistentBufferPtr[i].tactical.y()
+                                                  << "\n"
+                                                  << "  State:   " << m_persistentBufferPtr[i].metadata.z()
+                                                  << "\n"          << std::endl;
+
+                                        missile->updateMissileFromGPU (m_persistentBufferPtr[i]);
                                         bool isDetected =
                                             missile->isInsideSensorVolume (missile->getPosition(),
                                                                            m_tracker->m_filterActive,
@@ -595,7 +621,7 @@ namespace SimCore
                                                                            Globe::globeRadius
                                                                           );
                                         // 1. Advance linear trajectory curves using CPU mathematical tracking
-                                        missile->updatePhysics (m_persistentBufferPtr[missile->getSsboIndex()],
+                                        missile->updatePhysics (m_persistentBufferPtr[i],
                                                                 frameDeltaSeconds, isDetected
                                                                );
                                     }
@@ -788,11 +814,11 @@ namespace SimCore
                 {
                     if (m_persistentBufferPtr[i].metadata.w() == 0.0f)   // Dead slot
                     {
-                        bool isInterceptor = (origin.length() < (Globe::globeRadius * 1.5f));
+                        bool isInterceptor = (origin.length() < (Globe::globeRadius * 1.0f));
                         float typeId = isInterceptor ? 3.0f : 4.0f;
 
                         float targetMach = isInterceptor ? 
-                                           (::Config::getInstance().MAX_THAAD_SPD * 1.5f) : 
+                                           (::Config::getInstance().MAX_THAAD_SPD) : 
                                            ::Config::getInstance().MAX_ICBM_SPD;
 
                         float glUnitsPerSecond = targetMach * Globe::glScaleFactor;
@@ -800,17 +826,30 @@ namespace SimCore
                         // === GPU-side injection ===
                         m_persistentBufferPtr[i].position = QVector4D (origin.x(), origin.y(), origin.z(), 1.0f);
                         QVector3D dir = (target - origin).normalized();
-                        m_persistentBufferPtr[i].velocity = QVector4D (dir.x(), dir.y(), dir.z(), glUnitsPerSecond);
+                        //m_persistentBufferPtr[i].velocity = QVector4D (dir.x(), dir.y(), dir.z(), glUnitsPerSecond);
 
-                        m_persistentBufferPtr[i].metadata.setX (120.0f);           // lifespan
-                        m_persistentBufferPtr[i].metadata.setY (0.0f);
-                        m_persistentBufferPtr[i].metadata.setZ (20.0f);            // ballistic state
-                        m_persistentBufferPtr[i].metadata.setW (typeId);
+                        QVector3D vel = dir * (0.0001f * Globe::glScaleFactor);   // Initial cartesian velocity, small
+                        m_persistentBufferPtr[i].velocity = QVector4D (vel.x(), vel.y(), vel.z(), vel.length());
+
+                        m_persistentBufferPtr[i].metadata.setX (60.0f);           // lifespan
+
+                        // Thrust, was 0.0f for ballistic (no thrust)
+                        m_persistentBufferPtr[i].metadata.setY
+                                     (isInterceptor ?
+                                      /* GBI boost    */ ::Config::getInstance().GBI_BOOST * Globe::glScaleFactor
+                                      : /* ICBM boost   */ ::Config::getInstance().ICBM_BOOST * Globe::glScaleFactor
+                                     );
+                        m_persistentBufferPtr[i].metadata.setZ (10.0f);            // Ballistic state (10.0f is boost)
+                        m_persistentBufferPtr[i].metadata.setW (typeId);           // Missile type
+                        m_persistentBufferPtr[i].tactical.setX (::Config::getInstance().BOOST_SECONDS); // Boost time
+                        m_persistentBufferPtr[i].tactical.setY (glUnitsPerSecond); // Max speed of missile
+                        m_persistentBufferPtr[i].tactical.setZ (0.0f);             // N/A
+                        m_persistentBufferPtr[i].tactical.setW (0.0f);             // N/A
 
                         // === CPU-side GuidedMissile object ===
                         int uniqueId = static_cast<int> (m_missiles.size()) + 1000;
                         Objects::GuidedMissile* missile = new Objects::GuidedMissile (uniqueId, i, origin, target);
-                        missile->updateVelocity (m_persistentBufferPtr[i].velocity);
+                        missile->updateMissileFromGPU (m_persistentBufferPtr[i]);
 
                         if (isInterceptor)
                         {
@@ -824,6 +863,27 @@ namespace SimCore
                                  .arg (uniqueId)
                                  .arg (i)
                                );
+                        std::cout << std::fixed    << std::setprecision (10)
+                                  << "  Pos:   ("  << m_persistentBufferPtr[i].position.x()
+                                  << ", "          << m_persistentBufferPtr[i].position.y()
+                                  << ", "          << m_persistentBufferPtr[i].position.z()
+                                  << ", "          << m_persistentBufferPtr[i].position.w()
+                                  << ")\n"
+                                  << "  Boost:  "  << m_persistentBufferPtr[i].metadata.y()
+                                  << "\n"
+                                  << "  Vel:   ("  << m_persistentBufferPtr[i].velocity.x()
+                                  << ", "          << m_persistentBufferPtr[i].velocity.y()
+                                  << ", "          << m_persistentBufferPtr[i].velocity.z()
+                                  << ", "          << m_persistentBufferPtr[i].velocity.w()
+                                  << ")\n"
+                                  << "  Boost t: " << m_persistentBufferPtr[i].tactical.x()
+                                  << "\n"
+                                  << "  Max Spd: " << m_persistentBufferPtr[i].tactical.y()
+                                  << "\n"
+                                  << "  State:   " << m_persistentBufferPtr[i].metadata.z()
+                                  << "\n"          << std::endl;
+
+//                        std::this_thread::sleep_for (std::chrono::seconds (10)); 
 
                         m_vectorLock.release();
                         return;
@@ -875,7 +935,7 @@ namespace SimCore
             slot.position = QVector4D (0.0f, 0.0f, 0.0f, 1.0f);
             slot.velocity = QVector4D (0.0f, 0.0f, 0.0f, 1.0f);
             slot.metadata = QVector4D (9999.0f, 1.0f, 10.0f, DataObjects::TYPE_SGP4_SATELLITE);
-            slot.padding  = QVector4D();
+            slot.tactical  = QVector4D();
         }
 
         // Tactical zone (zero)

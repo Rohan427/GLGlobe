@@ -58,9 +58,13 @@ namespace Globe
             // Set to SGP4
             inline double earthRadiusKm;
             inline float glScaleFactor;
+            inline float glGravityConstant;
 
-            // Height of labels and points above the globe. Put labels above globe, but not too far or they will "slide" due
-            // to perspective and zoom changes
+            // Real earth standard gravitational parameter (μ) = 398600.4418 km^3/s^2
+            inline double earthMu = 398600.4418;
+
+            // Height of labels and points above the globe. Put labels above globe, but not too far or they will "slide"
+            // due to perspective and zoom changes
             inline float cityLabelHeight;
 
             // Global missile variables

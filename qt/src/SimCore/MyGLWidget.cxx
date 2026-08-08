@@ -67,6 +67,9 @@ namespace SimCore
         Globe::earthRadiusKm = libsgp4::kXKMPER;
         Globe::glScaleFactor = Globe::globeRadius / static_cast<float> (Globe::earthRadiusKm);
 
+        // Accel changes by scaleFactor cubed because volume elements scale by r^3
+        Globe::glGravityConstant = static_cast<float>(Globe::earthMu) * std::pow (Globe::glScaleFactor, 3.0f);
+
         // Height of labels and points above the globe. Put labels above globe, but not too far or they will "slide" due
         // to perspective and zoom changes
         Globe::cityLabelHeight = Globe::globeRadius + ::Config::getInstance().LABEL_HEIGHT_OFFSET;
@@ -114,7 +117,7 @@ namespace SimCore
 
         glBindVertexArray (m_cityVao);
 
-        initCapitals ("/home/pgallen/Downloads/capitals.csv");
+        initCapitals (::Config::getInstance().LOCATIONS);
 
         // Generate and Bind VBO
         glBindBuffer (GL_ARRAY_BUFFER, m_cityVbo);
@@ -483,7 +486,7 @@ namespace SimCore
             {
                 m_program->bind();
                 m_program->setUniformValue (4, QVector2D (width(), height())); // viewportSize
-                m_program->setUniformValue (5, 0.45f); // scale
+                m_program->setUniformValue (5, 0.35f); // scale
                 m_program->setUniformValue (0, mvp); //mvp
 
                 // Bind Day Texture to Unit 0
@@ -763,14 +766,14 @@ namespace SimCore
             // VERIFIED SPHERICAL LAUNCH SCATTER PIPELINE
             // =========================================================================
             // Establish the baseline high-altitude threat ceiling in deep space (2.5x planet radius)
-            float launchAltitude = Globe::globeRadius * 2.0f;
+            float launchAltitude = Globe::globeRadius * 1.1f;
             QVector3D launchOrigin = targetLocation.normalized() * launchAltitude;
 
             // Fetch a thread-safe random unit vector using your centralized Utility class
             QVector3D scatterOffset = Utility::randomSphericalVector();
             
             // Scale the scatter radius width so threats span a broad tactical grid cone
-            float scatterRadius = Globe::globeRadius * 0.75f;
+            float scatterRadius = Globe::globeRadius * 0.01f;
             
             // Apply the directional drift math to randomize the starting launch origin
             launchOrigin += (scatterOffset * scatterRadius);
@@ -1429,18 +1432,10 @@ namespace SimCore
         {
             m_program->bind();
             
-            // 1. Compute your real-world Earth core gravity constant relative to your scale factor
-            // Real earth standard gravitational parameter (μ) = 398600.4418 km^3/s^2
-            double earthMu = 398600.4418;
-            
-            // Convert to your current GL spatial universe dimensions
-            // Accel changes by scaleFactor cubed because volume elements scale by r^3
-            float glGravityConstant = static_cast<float>(earthMu) * std::pow (Globe::glScaleFactor, 3.0f);
-
             // 2. Inject parameters safely to your hardcoded locations
             m_program->setUniformValue (0, this->m_masterDeltaTimeSec);   // location 0
             m_program->setUniformValue (1, Globe::globeRadius);           // location 1
-            m_program->setUniformValue (2, glGravityConstant);            // location 2
+            m_program->setUniformValue (2, Globe::glGravityConstant);     // location 2
 
             ::glBindBufferBase (GL_SHADER_STORAGE_BUFFER, 0, m_ssboHardwareId);
 
@@ -1488,8 +1483,6 @@ namespace SimCore
 
     void MyGLWidget::renderMissileHistoryPoints (const QMatrix4x4& mvp)
     {
-//        SIM_LOG (LM_INFO, "renderMissileHistoryPoints");
-
         // Null pointer check
         if (!m_entityManager)
         {
@@ -1515,13 +1508,6 @@ namespace SimCore
                 {
                     continue;
                 }
-
-                //for (int p = 0; p < trailCount; ++p)
-                //{
-                //    const QVector3D& pos = missile->getTrailPoint (p);
-
-                //    m_trailPoints.push_back (pos);
-                //}
 
                 int p = 0;
 
@@ -1554,7 +1540,7 @@ namespace SimCore
 
         m_program->bind();
         m_program->setUniformValue (0, mvp);
-        m_program->setUniformValue (7, QVector4D (1.0f, 0.92f, 0.2f, 0.25f));  // Orange trail color
+        m_program->setUniformValue (7, ::Config::getInstance().TRAIL_COLOR);
 
         // Single VBO for all points (much faster)
         const size_t bytes = m_trailPoints.size() * sizeof (QVector3D);

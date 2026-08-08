@@ -274,6 +274,46 @@ float Config::getSensUpdateRate()
     return SENS_UPDATE_RATE;
 }
 
+QString Config::getLocations()
+{
+    LOCATIONS = QString::fromStdString (getString ("locations"));
+
+    return LOCATIONS;
+}
+
+QVector4D Config::getTrailColor()
+{
+    TRAIL_COLOR = QVector4D ((float)getDouble ("trailColR"),
+                             (float)getDouble ("trailColG"),
+                             (float)getDouble ("trailColB"),
+                             (float)getDouble ("trailColA")
+                            );
+
+    return TRAIL_COLOR; 
+}
+
+float Config::getGbiBoost()
+{
+    GBI_BOOST = (float)getDouble ("gbiBoost");
+
+    return GBI_BOOST;
+}
+
+float Config::getIcbmBoost()
+{
+    ICBM_BOOST = (float)getDouble ("icbmBoost");
+
+    return ICBM_BOOST;
+}
+
+float Config::getBoostSeconds()
+{
+    BOOST_SECONDS = (float)getDouble ("boostSeconds");
+
+    return BOOST_SECONDS;
+}
+
+
 
 
 
@@ -406,6 +446,11 @@ bool Config::update()
                     getMaxTrailPts();
                     getTrailUpdateRate();
                     getSensUpdateRate();
+                    getLocations();
+                    getTrailColor();
+                    getGbiBoost();
+                    getIcbmBoost();
+                    getBoostSeconds();
 
                     std::time (&timestamp);
                 }

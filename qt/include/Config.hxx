@@ -59,6 +59,11 @@ class Config : public configuration::Configuration
         int MAX_MISSILE_POINTS;  // Max missile trail points
         int TRAIL_UPDATE_RATE;
         float SENS_UPDATE_RATE;
+        QString LOCATIONS;      // City, target, base locations on globe
+        QVector4D TRAIL_COLOR;  // Missile track color
+        float GBI_BOOST;
+        float ICBM_BOOST;
+        float BOOST_SECONDS;
 
         struct ConfigErr
         {
@@ -128,6 +133,11 @@ class Config : public configuration::Configuration
         int getMaxTrailPts();
         int getTrailUpdateRate();
         float getSensUpdateRate();
+        QString getLocations();
+        QVector4D getTrailColor();
+        float getGbiBoost();
+        float getIcbmBoost();
+        float getBoostSeconds();
 
         //bool isCurrent();
         //time_t getLastReadTime();

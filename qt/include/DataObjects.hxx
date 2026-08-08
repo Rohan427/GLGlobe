@@ -22,17 +22,12 @@ namespace DataObjects
     constexpr float STATE_BALLISTIC     = 20.0f; // Pure un-thrusted gravitational re-entry
     constexpr float STATE_TERMINATED    = 30.0f; // Impact achieved / Dead slot
 
-    struct alignas (16) PathVertex 
-    {
-        QVector4D position; // xyz = Coordinate on the trajectory curve | w = Alpha/Fade factor
-    };
-
     struct alignas (16) GpuEntityData
     {
         QVector4D position;  // xyz = Coordinate Vector [X,Y,Z]   | w = Entity Type Scale (1.0 = Globe)
         QVector4D velocity;  // xyz = Vector Direction [VX,VY,VZ] | w = Status Flag (1.0 = Active Sat, 0.0 = Debris)
-        QVector4D metadata;  // x = Lifespan Decay Timer          | y = Mass Parameter   | z/w = Reserved Tactical Flags
-        QVector4D padding;   // 16 bytes -> CRITICAL INTERLOCK ALIGNMENT FIX
+        QVector4D metadata;  // x = Lifespan Decay Timer          | y = Mass/Thrust Parameter   | z/w = Reserved Tactical Flags
+        QVector4D tactical;  // x = boost time | y = max speed (Mach) | z-w tactical
     };
 } // namespace DataObjects
 

@@ -46,9 +46,9 @@ namespace Objects
         }
 
         QVector3D pos (missileData.position.x(), missileData.position.y(), missileData.position.z());
-        updateVelocity (missileData.velocity);
+//        updateVelocity (missileData.velocity);
 
-        m_currentPos += m_velocity * deltaTimeSec;
+//        m_currentPos += m_velocity * deltaTimeSec;
         m_trailTimer += deltaTimeSec;
 
         // Update trail at a controlled rate (visual only)
